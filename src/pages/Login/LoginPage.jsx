@@ -1,18 +1,24 @@
 import React, { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import logoSigea from "../../assets/images/logo-sigea.png";
+import { authService, ApiError } from "../../services/api.js";
 import "./LoginPage.css";
 
 export default function LoginPage() {
+  const navigate = useNavigate();
+
   const [email, setEmail] = useState("");
   const [senha, setSenha] = useState("");
   const [mostrarSenha, setMostrarSenha] = useState(false);
   const [lembrar, setLembrar] = useState(false);
   const [enviando, setEnviando] = useState(false);
   const [erro, setErro] = useState("");
+  const [sucesso, setSucesso] = useState("");
 
-  function handleSubmit(e) {
+  async function handleSubmit(e) {
     e.preventDefault();
     setErro("");
+    setSucesso("");
 
     if (!email || !senha) {
       setErro("Informe e-mail e senha para continuar.");
@@ -20,9 +26,25 @@ export default function LoginPage() {
     }
 
     setEnviando(true);
-    setTimeout(() => {
+
+    try {
+      const user = await authService.login(email.trim(), senha);
+
+      sessionStorage.setItem("sigea:user", JSON.stringify(user));
+      // setSucesso("Login realizado com sucesso! Redirecionando...");
+
+      setTimeout(() => {
+        navigate("/home", { state: { user } });
+      }, 900);
+    } catch (err) {
+      const mensagem =
+        err instanceof ApiError
+          ? err.message
+          : "Não foi possível conectar ao servidor. Verifique se o backend está rodando.";
+      setErro(mensagem);
+    } finally {
       setEnviando(false);
-    }, 1200);
+    }
   }
 
   return (
@@ -36,12 +58,13 @@ export default function LoginPage() {
 
           <div className="login-left-content">
             <img src={logoSigea} alt="SIGEA" className="login-logo" />
+            <p className="login-tagline">
+              Gestão inteligente de espaços acadêmicos, do planejamento à sala de aula.
+            </p>
           </div>
 
           <div className="login-left-footer">
-            <span className="login-left-footer-text">
-              SIGEA © {new Date().getFullYear()}
-            </span>
+            <span className="login-left-footer-text">SIGEA © {new Date().getFullYear()}</span>
           </div>
         </div>
 
@@ -49,9 +72,7 @@ export default function LoginPage() {
         <div className="login-right-panel">
           <div className="login-form-wrapper">
             <h1 className="login-title">Bem-vindo de volta</h1>
-            <p className="login-subtitle">
-              Entre com suas credenciais para acessar o sistema.
-            </p>
+            <p className="login-subtitle">Entre com suas credenciais para acessar o sistema.</p>
 
             <form onSubmit={handleSubmit} noValidate>
               <label className="login-label" htmlFor="email">
@@ -64,6 +85,7 @@ export default function LoginPage() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 className="login-input"
+                disabled={enviando}
               />
 
               <label className="login-label login-label-spaced" htmlFor="senha">
@@ -77,31 +99,52 @@ export default function LoginPage() {
                   value={senha}
                   onChange={(e) => setSenha(e.target.value)}
                   className="login-input login-input-password"
+                  disabled={enviando}
                 />
                 <button
                   type="button"
                   onClick={() => setMostrarSenha((v) => !v)}
                   className="login-toggle-password"
                   aria-label={mostrarSenha ? "Ocultar senha" : "Mostrar senha"}
+                  disabled={enviando}
                 >
                   {mostrarSenha ? "Ocultar" : "Mostrar"}
                 </button>
               </div>
 
               {erro && <div className="login-error-box">{erro}</div>}
+              {sucesso && <div className="login-success-box">{sucesso}</div>}
 
               <div className="login-row-between">
-                <button
-                  type="submit"
-                  disabled={enviando}
-                  className={`login-button ${
-                    enviando ? "login-button-disabled" : ""
-                  }`}
-                >
-                  {enviando ? "Entrando..." : "Entrar"}
-                </button>
+                <label className="login-checkbox-label">
+                  <input
+                    type="checkbox"
+                    checked={lembrar}
+                    onChange={(e) => setLembrar(e.target.checked)}
+                    className="login-checkbox"
+                  />
+                  Lembrar de mim
+                </label>
+                <a href="#" className="login-link">
+                  Esqueci minha senha
+                </a>
               </div>
-            </form>            
+
+              <button
+                type="submit"
+                disabled={enviando || !!sucesso}
+                className={`login-button ${enviando || sucesso ? "login-button-disabled" : ""}`}
+              >
+                {sucesso ? "Login realizado!" : enviando ? "Entrando..." : "Entrar"}
+              </button>
+            </form>
+
+            <p className="login-footer-note">
+              Precisa de acesso?{" "}
+              <a href="#" className="login-link">
+                Fale com a coordenação
+              </a>
+            </p>
           </div>
         </div>
       </div>
