@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import logoSigea from "../../assets/images/logo-sigea.png";
-import { authService, ApiError } from "../../services/api.js";
+import { FAKE_USER } from "../../data/fakeUser.js";
 import "./LoginPage.css";
 
 export default function LoginPage() {
@@ -15,7 +15,7 @@ export default function LoginPage() {
   const [erro, setErro] = useState("");
   const [sucesso, setSucesso] = useState("");
 
-  async function handleSubmit(e) {
+  function handleSubmit(e) {
     e.preventDefault();
     setErro("");
     setSucesso("");
@@ -27,24 +27,24 @@ export default function LoginPage() {
 
     setEnviando(true);
 
-    try {
-      const user = await authService.login(email.trim(), senha);
+    // Simula a chamada de autenticação com o usuário fake de teste.
+    setTimeout(() => {
+      const credenciaisValidas =
+        email.trim().toLowerCase() === FAKE_USER.email.toLowerCase() &&
+        senha === FAKE_USER.senha;
 
-      sessionStorage.setItem("sigea:user", JSON.stringify(user));
+      if (!credenciaisValidas) {
+        setEnviando(false);
+        setErro("E-mail ou senha incorretos. Tente novamente.");
+        return;
+      }
+
       // setSucesso("Login realizado com sucesso! Redirecionando...");
 
       setTimeout(() => {
-        navigate("/home", { state: { user } });
-      }, 900);
-    } catch (err) {
-      const mensagem =
-        err instanceof ApiError
-          ? err.message
-          : "Não foi possível conectar ao servidor. Verifique se o backend está rodando.";
-      setErro(mensagem);
-    } finally {
-      setEnviando(false);
-    }
+        navigate("/home");
+      }, 1200);
+    }, 900);
   }
 
   return (
