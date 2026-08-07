@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 import logoSigea from "../../assets/images/logo-sigea.png";
 import { FAKE_USER } from "../../data/fakeUser.js";
 import "./LoginPage.css";
@@ -140,10 +140,10 @@ export default function LoginPage() {
             </form>
 
             <p className="login-footer-note">
-              Precisa de acesso?{" "}
-              <a href="#" className="login-link">
-                Fale com a coordenação
-              </a>
+              Ainda não tem uma conta?{" "}
+              <Link to="/cadastro" className="login-link">
+                Cadastre-se
+              </Link>
             </p>
           </div>
         </div>
