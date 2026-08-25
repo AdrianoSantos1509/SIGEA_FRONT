@@ -131,6 +131,15 @@
   color: var(--color-blue-dark);
 }
 
+.login-eyebrow {
+  margin-bottom: 7px;
+  color: var(--color-orange);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
 .login-subtitle {
   margin-top: 8px;
   margin-bottom: 28px;

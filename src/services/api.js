@@ -1,52 +1,31 @@
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3300";
 
-/**
- * Erro customizado para respostas não-OK da API,
- * carregando a mensagem retornada pelo backend.
- */
-export class ApiError extends Error {
-  constructor(message, status) {
-    super(message);
-    this.name = "ApiError";
-    this.status = status;
-  }
-}
-
-async function request(path, options = {}) {
+export async function api(path, options = {}) {
+  const token = localStorage.getItem("sigea_token");
   const response = await fetch(`${API_URL}${path}`, {
-    headers: { "Content-Type": "application/json" },
     ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...options.headers,
+    },
   });
-
-  const data = await response.json().catch(() => null);
-
+  const body = response.status === 204 ? null : await response.json().catch(() => null);
   if (!response.ok) {
-    const message = data?.message || "Não foi possível completar a solicitação.";
-    throw new ApiError(message, response.status);
+    if (response.status === 403 && body?.code === "PASSWORD_RESET_REQUIRED") {
+      const user = JSON.parse(localStorage.getItem("sigea_user") || "{}");
+      localStorage.setItem("sigea_user", JSON.stringify({ ...user, passwordResetRequired: true }));
+      window.location.href = "/redefinir-senha";
+    }
+    if (response.status === 401 && path !== "/users/login") {
+      localStorage.removeItem("sigea_token");
+      localStorage.removeItem("sigea_user");
+      window.location.href = "/";
+    }
+    const error = new Error(body?.message || "Não foi possível concluir a operação.");
+    error.status = response.status;
+    error.details = body;
+    throw error;
   }
-
-  return data;
+  return body;
 }
-
-export const authService = {
-  /**
-   * Autentica o usuário no backend (POST /users/login).
-   * Retorna os dados do usuário (sem a senha) em caso de sucesso.
-   */
-  login(email, password) {
-    return request("/users/login", {
-      method: "POST",
-      body: JSON.stringify({ email, password }),
-    });
-  },
-
-  /**
-   * Cria um novo usuário (POST /users).
-   */
-  register({ name, email, password, reg_number }) {
-    return request("/users", {
-      method: "POST",
-      body: JSON.stringify({ name, email, password, reg_number }),
-    });
-  },
-};
