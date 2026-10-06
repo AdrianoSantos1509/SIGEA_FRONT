@@ -151,12 +151,27 @@ export default function CorrectedAllocationForm({ courses, rooms, initialCourse,
       : "As salas ativas desta unidade têm conflito real com o período, horário ou dias selecionados.";
 
   const selectedInstructorIsAvailable = data.instructorId && availableInstructors.some((instructor) => instructor.id === Number(data.instructorId));
-  const instructorOptions = selectedInstructorIsAvailable || initialData?.instructor
-    ? [initialData?.instructor, ...availableInstructors].filter((item, index, array) => item && array.findIndex((candidate) => candidate.id === item.id) === index)
+  // Quando uma turma está selecionada, o período/horário/dias vêm herdados dela
+  // (ver selectCourse acima) e ficam bloqueados aqui — só uma "Reserva avulsa"
+  // (sem turma vinculada) permite editar esses campos livremente.
+  const lockedByCourse = Boolean(data.courseId);
+  // FIX: .filter(Boolean) remove os `undefined` (ex.: initialData?.instructor quando
+  // initialData não existe) ANTES do findIndex de deduplicação rodar. Sem isso, o
+  // findIndex percorria um array com `undefined` dentro e quebrava ao ler `candidate.id`.
+  // Também força a entrada do instrutor já vinculado à turma (selectedCourse.teacher),
+  // mesmo que a consulta de disponibilidade ainda não o tenha confirmado — assim ele
+  // já aparece pré-selecionado ao escolher a turma, sem precisar buscar de novo.
+  const instructorOptions = selectedInstructorIsAvailable || initialData?.instructor || selectedCourse?.teacher
+    ? [initialData?.instructor, selectedCourse?.teacher, ...availableInstructors]
+        .filter(Boolean)
+        .filter((item, index, array) => array.findIndex((candidate) => candidate.id === item.id) === index)
     : availableInstructors;
   const selectedRoomIsAvailable = data.classroomId && roomResult.rooms.some((room) => room.id === Number(data.classroomId));
+  // FIX: mesma correção aplicada às salas.
   const roomOptions = selectedRoomIsAvailable || initialData?.classroom
-    ? [initialData?.classroom, ...roomResult.rooms].filter((item, index, array) => item && array.findIndex((candidate) => candidate.id === item.id) === index)
+    ? [initialData?.classroom, ...roomResult.rooms]
+        .filter(Boolean)
+        .filter((item, index, array) => array.findIndex((candidate) => candidate.id === item.id) === index)
     : roomResult.rooms;
 
   return <form className="entity-form" onSubmit={submit} noValidate>
@@ -181,15 +196,14 @@ export default function CorrectedAllocationForm({ courses, rooms, initialCourse,
     </label>
     {!checking && !roomResult.rooms.length && !initialData?.classroom && <p className="form-hint availability-empty">{noRoomsMessage}</p>}
     {!checking && !availableInstructors.length && !initialData?.instructor && !error && <p className="form-hint availability-empty">Não há instrutores ativos disponíveis para o período, horário e dias selecionados.</p>}
-    <label>Título<input required value={data.title} onChange={(event) => setData((current) => ({ ...current, title: event.target.value.toLocaleUpperCase("pt-BR") }))} /></label>
     <div className="form-grid">
-      <label>Início<input required type="date" value={data.startDate} onChange={(event) => setData((current) => ({ ...current, startDate: event.target.value }))} /></label>
-      <label>Término<input required type="date" value={data.endDate} onChange={(event) => setData((current) => ({ ...current, endDate: event.target.value }))} /></label>
-      <label>Turno<select required value={data.shift} onChange={selectShift}><option value="MATUTINO">MATUTINO</option><option value="VESPERTINO">VESPERTINO</option><option value="NOTURNO">NOTURNO</option></select></label>
-      <label>Início do horário<input required type="time" value={data.startTime} readOnly /></label>
-      <label>Fim do horário<input required type="time" value={data.endTime} readOnly /></label>
+      <label>Início<input required type="date" value={data.startDate} disabled={lockedByCourse} onChange={(event) => setData((current) => ({ ...current, startDate: event.target.value }))} /></label>
+      <label>Término<input required type="date" value={data.endDate} disabled={lockedByCourse} onChange={(event) => setData((current) => ({ ...current, endDate: event.target.value }))} /></label>
+      <label>Turno<select required value={data.shift} disabled={lockedByCourse} onChange={selectShift}><option value="MATUTINO">MATUTINO</option><option value="VESPERTINO">VESPERTINO</option><option value="NOTURNO">NOTURNO</option></select></label>
+      <label>Início do horário<input required type="time" value={data.startTime} disabled={lockedByCourse} onChange={(event) => setData((current) => ({ ...current, startTime: event.target.value }))} /></label>
+      <label>Fim do horário<input required type="time" value={data.endTime} disabled={lockedByCourse} onChange={(event) => setData((current) => ({ ...current, endTime: event.target.value }))} /></label>
     </div>
-    <fieldset><legend>Dias de execução</legend><div className="day-picker">{WEEKDAYS.map((day) => <button type="button" key={day} className={data.weekdays.includes(day) ? "selected" : ""} onClick={() => setData((current) => ({ ...current, weekdays: current.weekdays.includes(day) ? current.weekdays.filter((value) => value !== day) : [...current.weekdays, day] }))}>{day}</button>)}</div></fieldset>
+    <fieldset><legend>Dias de execução{lockedByCourse && <span className="form-hint"> (definidos pela turma)</span>}</legend><div className="day-picker">{WEEKDAYS.map((day) => <button type="button" key={day} disabled={lockedByCourse} className={data.weekdays.includes(day) ? "selected" : ""} onClick={() => setData((current) => ({ ...current, weekdays: current.weekdays.includes(day) ? current.weekdays.filter((value) => value !== day) : [...current.weekdays, day] }))}>{day}</button>)}</div></fieldset>
     <label>Observações<textarea value={data.notes} onChange={(event) => setData((current) => ({ ...current, notes: event.target.value.toLocaleUpperCase("pt-BR") }))} rows="3" /></label>
     <div className="form-actions"><button type="submit" className="primary">{initialData ? "Salvar alterações" : "Salvar alocação"}</button></div>
   </form>;
