@@ -11,6 +11,7 @@ const tabs = [
   ["teachers", "♙", "Instrutores"],
   ["courses", "▤", "Turmas"],
   ["allocations", "⇄", "Alocações"],
+  ["substitutions", "↺", "Substituições"],
   ["users", "♙", "Usuários"],
 ];
 const week = ["SEG", "TER", "QUA", "QUI", "SEX", "SAB"];
@@ -82,6 +83,7 @@ export default function HomePage() {
   const [courses, setCourses] = useState([]);
   const [allocations, setAllocations] = useState([]);
   const [teachers, setTeachers] = useState([]);
+  const [substitutions, setSubstitutions] = useState([]);
   const [users, setUsers] = useState([]);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
@@ -93,18 +95,44 @@ export default function HomePage() {
     setLoading(true);
     try {
       const suffix = query ? `&${query}` : "";
-      const [buildingData, dashboardData, roomData, courseData, allocationData, teacherData, userData] = await Promise.all([
-        api("/api/buildings"),
-        api(`/api/dashboard?date=${date}${suffix}`),
-        api(`/api/classrooms${query ? `?${query}` : ""}`),
-        api(`/api/courses?limit=1000${suffix}`),
-        api(`/api/occupancies?date=${date}${suffix}`),
-        api(`/api/teachers${query ? `?${query}` : ""}`),
-        user.role === "ADMIN" ? api("/api/users") : Promise.resolve([]),
-      ]);
-      setBuildings(buildingData); setDashboard(dashboardData); setRooms(roomData); setCourses(courseData); setAllocations(allocationData); setTeachers(teacherData); setUsers(userData);
-    } catch (error) { setNotice({ type: "error", text: error.message }); }
-    finally { setLoading(false); }
+      const requests = [
+        ["Unidades", () => api("/api/buildings")],
+        ["Visão geral", () => api(`/api/dashboard?date=${date}${suffix}`)],
+        ["Salas", () => api(`/api/classrooms${query ? `?${query}` : ""}`)],
+        ["Turmas", () => api(`/api/courses?limit=1000${suffix}`)],
+        ["Alocações", () => api(`/api/occupancies?date=${date}${suffix}`)],
+        ["Instrutores", () => api(`/api/teachers${query ? `?${query}` : ""}`)],
+        ["Substituições", () => api("/api/substitutions")],
+        ["Usuários", () => user.role === "ADMIN" ? api("/api/users") : Promise.resolve([])],
+      ];
+      const results = await Promise.allSettled(requests.map(([, request]) => request()));
+      const failures = [];
+      const [buildingResult, dashboardResult, roomResult, courseResult, allocationResult, teacherResult, substitutionResult, userResult] = results;
+
+      if (buildingResult.status === "fulfilled") setBuildings(buildingResult.value);
+      else failures.push(`Unidades: ${buildingResult.reason?.message || "erro ao carregar"}`);
+      if (dashboardResult.status === "fulfilled") setDashboard(dashboardResult.value);
+      else failures.push(`Visão geral: ${dashboardResult.reason?.message || "erro ao carregar"}`);
+      if (roomResult.status === "fulfilled") setRooms(roomResult.value);
+      else failures.push(`Salas: ${roomResult.reason?.message || "erro ao carregar"}`);
+      if (courseResult.status === "fulfilled") setCourses(courseResult.value);
+      else failures.push(`Turmas: ${courseResult.reason?.message || "erro ao carregar"}`);
+      if (allocationResult.status === "fulfilled") setAllocations(allocationResult.value);
+      else failures.push(`Alocações: ${allocationResult.reason?.message || "erro ao carregar"}`);
+      if (teacherResult.status === "fulfilled") setTeachers(teacherResult.value);
+      else failures.push(`Instrutores: ${teacherResult.reason?.message || "erro ao carregar"}`);
+      if (substitutionResult.status === "fulfilled") setSubstitutions(substitutionResult.value);
+      else failures.push(`Substituições: ${substitutionResult.reason?.message || "erro ao carregar"}`);
+      if (userResult.status === "fulfilled") setUsers(userResult.value);
+      else failures.push(`Usuários: ${userResult.reason?.message || "erro ao carregar"}`);
+
+      if (failures.length) {
+        setNotice({ type: "error", text: `Alguns dados não puderam ser carregados: ${failures.join(" | ")}`, duration: 10000 });
+      }
+      return failures.length === 0;
+    } finally {
+      setLoading(false);
+    }
   }, [date, query, user.role]);
 
   useEffect(() => { refresh(); }, [refresh]);
@@ -115,6 +143,7 @@ export default function HomePage() {
   const filteredRooms = useMemo(() => rooms.filter((item) => normalizeSearch(`${item.name} ${item.code} ${item.type} ${item.building?.name}`).includes(needle)), [rooms, needle]);
   const filteredCourses = useMemo(() => courses.filter((item) => normalizeSearch(`${item.name} ${item.code} ${item.instructor} ${item.coordinator}`).includes(needle)), [courses, needle]);
   const filteredAllocations = useMemo(() => allocations.filter((item) => normalizeSearch(`${item.title} ${item.classroom?.name} ${item.course?.code} ${item.course?.name} ${item.course?.teacher?.name}`).includes(needle)), [allocations, needle]);
+  const filteredSubstitutions = useMemo(() => substitutions.filter((item) => normalizeSearch(`${item.course?.code} ${item.course?.name} ${item.originalTeacher?.name} ${item.substituteTeacher?.name} ${item.reason}`).includes(needle)), [substitutions, needle]);
   const filteredTeachers = useMemo(() => teachers.filter((item) => normalizeSearch(`${item.name} ${item.registration} ${item.email} ${item.area} ${item.specialty}`).includes(needle)), [teachers, needle]);
   const teacherSegments = useMemo(() => [...new Set(teachers.map((item) => item.area).filter(Boolean))].sort((a, b) => String(a).localeCompare(String(b), "pt-BR")), [teachers]);
   const courseSegments = useMemo(() => [...new Set(courses.map((item) => item.segment).filter(Boolean))].sort((a, b) => String(a).localeCompare(String(b), "pt-BR")), [courses]);
@@ -128,8 +157,17 @@ export default function HomePage() {
     catch (error) { setNotice({ type: "error", text: error.message }); }
   }
   async function save(path, payload, method = "POST") {
-    try { await api(path, { method, body: JSON.stringify(payload) }); setModal(null); setNotice({ type: "success", text: "Registro salvo com sucesso." }); refresh(); }
-    catch (error) { setNotice({ type: "error", text: error.message }); if (error.details?.conflicts?.length) setNotice({ type: "error", text: `${error.message}: ${error.details.conflicts[0].title || "Conflito de alocação"}`, duration: 10000 }); }
+    try {
+      await api(path, { method, body: JSON.stringify(payload) });
+      setModal(null);
+      setNotice({ type: "success", text: "Registro salvo com sucesso." });
+      await refresh();
+      return true;
+    } catch (error) {
+      setNotice({ type: "error", text: error.message });
+      if (error.details?.conflicts?.length) setNotice({ type: "error", text: `${error.message}: ${error.details.conflicts[0].title || "Conflito de alocação"}`, duration: 10000 });
+      return false;
+    }
   }
 
   return (
@@ -150,8 +188,9 @@ export default function HomePage() {
           {tab === "buildings" && <Unidades items={filteredBuildings} search={search} setSearch={setSearch} isAdmin={isAdmin} onNew={isAdmin ? () => setModal("building") : undefined} onEdit={(item) => setModal({ type: "building", item })} onDelete={(id) => remove(`/api/buildings/${id}`, "Apagar esta unidade? Essa ação não poderá ser desfeita.")} />}
           {tab === "rooms" && <Rooms items={filteredRooms} search={search} setSearch={setSearch} isAdmin={isAdmin} onNew={isAdmin ? () => setModal("room") : undefined} onEdit={(item) => setModal({ type: "room", item })} onDelete={(id) => remove(`/api/classrooms/${id}`, "Remover esta sala e suas alocações?")} />}
           {tab === "teachers" && <Teachers items={filteredTeachers} segments={teacherSegments} search={search} setSearch={setSearch} isAdmin={isAdmin} onNew={isAdmin ? () => setModal("teacher") : undefined} onEdit={(item) => setModal({ type: "teacher", item })} onDelete={(id) => remove(`/api/teachers/${id}`, "Apagar definitivamente este instrutor? Esta ação não poderá ser desfeita.")} />}
-          {tab === "courses" && <Courses items={filteredCourses} search={search} setSearch={setSearch} isAdmin={isAdmin} onNew={isAdmin ? () => setModal("course") : undefined} onEdit={(item) => setModal({ type: "course", item })} onAllocate={(course) => setModal({ type: "allocation", course })} segments={courseSegments} onDelete={(id) => remove(`/api/courses/${id}`, "Remover esta turma e suas alocações?")} />}
+          {tab === "courses" && <Courses items={filteredCourses} search={search} setSearch={setSearch} isAdmin={isAdmin} onNew={isAdmin ? () => setModal("course") : undefined} onEdit={(item) => setModal({ type: "course", item })} onAllocate={(course) => setModal({ type: "allocation", course })} onSubstitute={(course) => setModal({ type: "substitution", course })} onHistory={(course) => setModal({ type: "substitution-history", course })} segments={courseSegments} onDelete={(id) => remove(`/api/courses/${id}`, "Remover esta turma e suas alocações?")} />}
           {tab === "allocations" && <Allocations items={filteredAllocations} search={search} setSearch={setSearch} isAdmin={isAdmin} onNew={isAdmin ? () => setModal("allocation") : undefined} onEdit={(item) => setModal({ type: "allocation", item })} onDelete={(id) => remove(`/api/occupancies/${id}`, "Remover esta alocação?")} />}
+          {tab === "substitutions" && <Substitutions items={filteredSubstitutions} search={search} setSearch={setSearch} isAdmin={isAdmin} onNew={isAdmin ? () => setModal("substitution") : undefined} onDelete={(id) => remove(`/api/substitutions/${id}`, "Remover este registro de substituição?")} />}
           {tab === "users" && <Users items={filteredUsers} currentUserId={user.id} search={search} setSearch={setSearch} onNew={() => setModal("user")} onEdit={(item) => setModal({ type: "user", item })} onDelete={(id) => remove(`/api/users/${id}`, "Apagar definitivamente este usuário? Esta ação não poderá ser desfeita.")} />}
         </>}
       </main>
@@ -160,7 +199,9 @@ export default function HomePage() {
       {(modal === "course" || modal?.type === "course") && <Modal title={modal?.item ? "Editar turma" : "Nova turma"} onClose={() => setModal(null)}><CourseForm buildings={buildings} teachers={teachers} initialBuilding={buildingId} initialData={modal?.item} onSave={(data) => save(modal?.item ? `/api/courses/${modal.item.id}` : "/api/courses", data, modal?.item ? "PUT" : "POST")} /></Modal>}
       {(modal === "teacher" || modal?.type === "teacher") && <Modal title={modal?.item ? "Editar instrutor" : "Novo instrutor"} onClose={() => setModal(null)}><TeacherForm initialData={modal?.item} onSave={(data) => save(modal?.item ? `/api/teachers/${modal.item.id}` : "/api/teachers", data, modal?.item ? "PUT" : "POST")} /></Modal>}
       {(modal === "user" || modal?.type === "user") && <Modal title={modal?.item ? "Editar usuário" : "Novo usuário"} onClose={() => setModal(null)}><UserForm initialData={modal?.item} onSave={(data) => save(modal?.item ? `/api/users/${modal.item.id}` : "/api/users", data, modal?.item ? "PUT" : "POST")} /></Modal>}
-      {(modal === "allocation" || modal?.type === "allocation") && <Modal title={modal?.item ? "Editar alocação" : "Nova alocação"} onClose={() => setModal(null)}><CorrectedAllocationForm rooms={rooms} courses={courses} initialCourse={modal?.course} initialData={modal?.item} date={date} buildingId={buildingId} onSave={(data) => save(modal?.item ? `/api/occupancies/${modal.item.id}` : "/api/occupancies", data, modal?.item ? "PUT" : "POST")} /></Modal>}
+      {(modal === "allocation" || modal?.type === "allocation") && <Modal title={modal?.item ? "Editar alocação" : "Nova alocação"} onClose={() => setModal(null)}><CorrectedAllocationForm rooms={rooms} courses={courses} initialCourse={modal?.course} initialData={modal?.item} date={date} buildingId={buildingId} onSave={(data) => save(modal?.item ? `/api/occupancies/${modal.item.id}` : "/api/occupancies", data, modal?.item ? "PUT" : "POST").then((ok) => { if (ok) { setTab("allocations"); if (data.startDate) setDate(data.startDate); } })} /></Modal>}
+      {(modal === "substitution" || modal?.type === "substitution") && <Modal title="Registrar substituição" onClose={() => setModal(null)}><SubstitutionForm courses={courses} teachers={teachers} initialCourse={modal?.course} onSave={(data) => save("/api/substitutions", data, "POST").then((ok) => { if (ok) setTab("substitutions"); })} /></Modal>}
+      {modal?.type === "substitution-history" && <SubstitutionHistoryModal course={modal.course} teachers={teachers} isAdmin={isAdmin} onClose={() => setModal(null)} onSave={async (data) => { try { await api("/api/substitutions", { method: "POST", body: JSON.stringify(data) }); setNotice({ type: "success", text: "Substituição registrada com sucesso." }); await refresh(); return true; } catch (error) { setNotice({ type: "error", text: error.message }); return false; } }} onDelete={async (id) => { try { await api(`/api/substitutions/${id}`, { method: "DELETE" }); setNotice({ type: "success", text: "Substituição removida." }); await refresh(); return true; } catch (error) { setNotice({ type: "error", text: error.message }); return false; } }} /> }
       {modal === "instructors" && <InstructorAvailabilityModal date={date} segments={teacherSegments} onClose={() => setModal(null)} />}
     </div>
   );
@@ -205,8 +246,9 @@ function FormActions() { return <div className="form-actions"><button className=
 function TablePage({ items, search, setSearch, onNew, button, headers, empty, renderRow, toolbarExtra, resetKey }) { const pagination=usePagination(items, resetKey ?? search); return <div className="content"><Toolbar {...{search,setSearch,onNew}} button={button} extra={toolbarExtra}/><div className="panel table-panel"><table><thead><tr>{headers.map((h)=><th key={h}>{h}</th>)}</tr></thead><tbody>{pagination.visible.map(renderRow)}</tbody></table>{!items.length&&<Empty>{empty}</Empty>}</div><div className="pagination-row"><PageSizeSelector pageSize={pagination.pageSize} setPageSize={pagination.setPageSize}/><Pagination page={pagination.page} total={items.length} pageSize={pagination.pageSize} onChange={pagination.setPage}/></div></div>; }
 function Unidades({ items, search, setSearch, onNew, onEdit, onDelete, isAdmin }) { const [situacao, setSituacao] = useState(""); const filtered = situacao ? items.filter((item) => (situacao === "ATIVA" ? item.active : !item.active)) : items; return <TablePage items={filtered} search={search} setSearch={setSearch} resetKey={`${search}|${situacao}`} onNew={onNew} button="Nova unidade" toolbarExtra={<label className="filter-select"><span>Situação</span><select value={situacao} onChange={(e) => setSituacao(e.target.value)}><option value="">Todas</option><option value="ATIVA">Ativas</option><option value="INATIVA">Inativas</option></select></label>} empty="Nenhuma unidade encontrada." headers={["CNPJ","Instituição","Endereço","CEP","Situação",""]} renderRow={(item)=><tr key={item.id}><td>{formatCNPJ(item.code)}</td><td><strong>{normalizeName(item.name)}</strong></td><td>{normalizeName(item.location||"—")}</td><td>{item.zipCode?formatCEP(item.zipCode):"—"}</td><td><Status>{item.active?"Ativa":"Inativa"}</Status></td><td>{isAdmin && <div className="row-actions"><button className="edit-icon" onClick={()=>onEdit(item)} title="Editar" aria-label={`Editar unidade ${item.name}`}>✎</button><button className="danger-icon" onClick={()=>onDelete(item.id)} title="Apagar" aria-label={`Apagar unidade ${item.name}`}>×</button></div>}</td></tr>}/>; }
 function Rooms({ items, search, setSearch, onNew, onEdit, onDelete, isAdmin }) { return <TablePage items={items} search={search} setSearch={setSearch} onNew={onNew} button="Nova sala" empty="Nenhuma sala encontrada." headers={["Sala","Unidade","Tipo","Capacidade","Recomendada","Status",""]} renderRow={(item)=><tr key={item.id}><td><strong>{normalizeName(item.name)}</strong><small>{normalizeName(item.code)}{item.floor?` · ${item.floor}`:""}</small></td><td>{normalizeName(item.building?.name)}</td><td>{normalizeName(item.type)}</td><td>{item.capacity}</td><td>{item.recommendedCapacity}</td><td><Status>{item.active?"Ativa":"Inativa"}</Status></td><td>{isAdmin && <div className="row-actions"><button className="edit-icon" onClick={()=>onEdit(item)} title="Editar" aria-label={`Editar sala ${item.name}`}>✎</button><button className="danger-icon" onClick={()=>onDelete(item.id)} title="Apagar" aria-label={`Apagar sala ${item.name}`}>×</button></div>}</td></tr>}/>; }
-function Courses({ items, segments, search, setSearch, onNew, onEdit, onAllocate, onDelete, isAdmin }) { const [segment, setSegment] = useState(""); const filtered = segment ? items.filter((item) => normalizeSearch(item.segment) === normalizeSearch(segment)) : items; return <TablePage items={filtered} search={search} setSearch={setSearch} resetKey={`${search}|${segment}`} onNew={onNew} button="Nova turma" toolbarExtra={<label className="filter-select"><span>Segmento</span><select value={segment} onChange={(e) => setSegment(e.target.value)}><option value="">Todos</option>{segments.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>} empty="Nenhuma turma encontrada." headers={["Turma","Período","Turno / dias","Instrutor","Sala","Status",""]} renderRow={(item)=><tr key={item.id}><td><strong>{normalizeName(item.code)}</strong><small>{normalizeName(item.name)}</small></td><td>{formatDate(item.startDate)}<small>até {formatDate(item.endDate)}</small></td><td>{normalizeName(item.shift||"—")}<small>{normalizeName(item.weekdays?.join(", ")||"DIAS NÃO INFORMADOS")}</small></td><td>{normalizeName(item.instructor||"—")}<small>{normalizeName(item.coordinator||"")}</small></td><td>{item.occupancies?.[0]?.classroom?.name||(isAdmin?<button className="text-action" onClick={()=>onAllocate(item)}>Alocar agora</button>:<span className="muted-text">Sem alocação</span>)}</td><td><Status>{item.status}</Status></td><td>{isAdmin && <div className="row-actions"><button className="edit-icon" onClick={()=>onEdit(item)} title="Editar" aria-label={`Editar turma ${item.code}`}>✎</button><button className="danger-icon" onClick={()=>onDelete(item.id)} title="Apagar" aria-label={`Apagar turma ${item.code}`}>×</button></div>}</td></tr>}/>; }
-function Allocations({ items, search, setSearch, onNew, onEdit, onDelete, isAdmin }) { return <TablePage items={items} search={search} setSearch={setSearch} onNew={onNew} button="Nova alocação" empty="Nenhuma alocação para a data selecionada." headers={["Atividade","Sala","Vigência","Horário","Dias","Instrutor","Tipo",""]} renderRow={(item)=><tr key={item.id}><td><strong>{normalizeName(item.title)}</strong><small>{item.course?.code||"RESERVA AVULSA"}</small></td><td>{normalizeName(item.classroom?.name||"—")}<small>{normalizeName(item.classroom?.building?.name||"")}</small></td><td>{formatDate(item.startDate)}<small>até {formatDate(item.endDate)}</small></td><td>{formatTime(item.startTime)} – {formatTime(item.endTime)}</td><td>{item.weekdays?.join(", ")}</td><td>{normalizeName(item.instructor?.name||item.course?.teacher?.name||"—")}</td><td><Status>{normalizeName(item.kind)}</Status></td><td>{isAdmin && <div className="row-actions"><button className="edit-icon" onClick={()=>onEdit(item)} title="Editar alocação" aria-label={`Editar alocação ${item.id}`}>✎</button><button className="danger-icon" onClick={()=>onDelete(item.id)} title="Apagar alocação" aria-label={`Apagar alocação ${item.id}`}>×</button></div>}</td></tr>}/>; }
+function Courses({ items, segments, search, setSearch, onNew, onEdit, onAllocate, onSubstitute, onHistory, onDelete, isAdmin }) { const [segment, setSegment] = useState(""); const filtered = segment ? items.filter((item) => normalizeSearch(item.segment) === normalizeSearch(segment)) : items; return <TablePage items={filtered} search={search} setSearch={setSearch} resetKey={`${search}|${segment}`} onNew={onNew} button="Nova turma" toolbarExtra={<label className="filter-select"><span>Segmento</span><select value={segment} onChange={(e) => setSegment(e.target.value)}><option value="">Todos</option>{segments.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>} empty="Nenhuma turma encontrada." headers={["Turma","Período","Turno / dias","Instrutor","Sala","Status",""]} renderRow={(item)=><tr key={item.id}><td><strong>{normalizeName(item.code)}</strong><small>{normalizeName(item.name)}</small></td><td>{formatDate(item.startDate)}<small>até {formatDate(item.endDate)}</small></td><td>{normalizeName(item.shift||"—")}<small>{normalizeName(item.weekdays?.join(", ")||"DIAS NÃO INFORMADOS")}</small></td><td>{normalizeName(item.instructor||"—")}<small>{normalizeName(item.coordinator||"")}</small></td><td>{item.occupancies?.[0]?.classroom?.name||(isAdmin?<button className="text-action" onClick={()=>onAllocate(item)}>Alocar agora</button>:<span className="muted-text">Sem alocação</span>)}</td><td><Status>{item.status}</Status></td><td><div className="row-actions"><button className="edit-icon" onClick={()=>onHistory(item)} title="Ver histórico de substituições" aria-label={`Ver histórico de substituições da turma ${item.code}`}>◷</button>{isAdmin && <><button className="edit-icon" onClick={()=>onSubstitute(item)} title="Registrar substituição" aria-label={`Registrar substituição na turma ${item.code}`}>↺</button><button className="edit-icon" onClick={()=>onEdit(item)} title="Editar" aria-label={`Editar turma ${item.code}`}>✎</button><button className="danger-icon" onClick={()=>onDelete(item.id)} title="Apagar" aria-label={`Apagar turma ${item.code}`}>×</button></>}</div></td></tr>}/>; }
+function Allocations({ items, search, setSearch, onNew, onEdit, onDelete, isAdmin }) { const [tipo, setTipo] = useState("TURMA"); const filtered = tipo === "TODAS" ? items : items.filter((item) => normalizeSearch(item.kind) === normalizeSearch(tipo)); return <TablePage items={filtered} search={search} setSearch={setSearch} resetKey={`${search}|${tipo}`} onNew={onNew} button="Nova alocação" toolbarExtra={<label className="filter-select"><span>Tipo</span><select value={tipo} onChange={(e) => setTipo(e.target.value)}><option value="TURMA">Turmas alocadas</option><option value="RESERVA">Reservas avulsas</option><option value="TODAS">Todas</option></select></label>} empty="Nenhuma turma alocada para a data selecionada." headers={["Atividade","Sala","Vigência","Horário","Dias","Instrutor","Tipo",""]} renderRow={(item)=><tr key={item.id}><td><strong>{normalizeName(item.title)}</strong><small>{item.course?.code||"RESERVA AVULSA"}</small></td><td>{normalizeName(item.classroom?.name||"—")}<small>{normalizeName(item.classroom?.building?.name||"")}</small></td><td>{formatDate(item.startDate)}<small>até {formatDate(item.endDate)}</small></td><td>{formatTime(item.startTime)} – {formatTime(item.endTime)}</td><td>{item.weekdays?.join(", ")}</td><td>{normalizeName(item.instructor?.name||item.course?.teacher?.name||"—")}</td><td><Status>{normalizeName(item.kind)}</Status></td><td>{isAdmin && <div className="row-actions"><button className="edit-icon" onClick={()=>onEdit(item)} title="Editar alocação" aria-label={`Editar alocação ${item.id}`}>✎</button><button className="danger-icon" onClick={()=>onDelete(item.id)} title="Apagar alocação" aria-label={`Apagar alocação ${item.id}`}>×</button></div>}</td></tr>}/>; }
+function Substitutions({ items, search, setSearch, onNew, onDelete, isAdmin }) { return <TablePage items={items} search={search} setSearch={setSearch} onNew={onNew} button="Nova substituição" empty="Nenhuma substituição registrada." headers={["Turma","Data","Professor titular","Substituto","Motivo",""]} renderRow={(item)=><tr key={item.id}><td><strong>{normalizeName(item.course?.code)}</strong><small>{normalizeName(item.course?.name||"")}</small></td><td>{formatDate(item.date)}</td><td>{normalizeName(item.originalTeacher?.name||"—")}</td><td>{normalizeName(item.substituteTeacher?.name||"—")}</td><td>{normalizeName(item.reason||"—")}<small>{item.notes||""}</small></td><td>{isAdmin && <div className="row-actions"><button className="danger-icon" onClick={()=>onDelete(item.id)} title="Remover registro" aria-label={`Remover substituição ${item.id}`}>×</button></div>}</td></tr>}/>; }
 function Teachers({ items, segments, search, setSearch, onNew, onEdit, onDelete, isAdmin }) { const [segment, setSegment] = useState(""); const filtered = segment ? items.filter((item) => normalizeSearch(item.area) === normalizeSearch(segment)) : items; return <TablePage items={filtered} search={search} setSearch={setSearch} resetKey={`${search}|${segment}`} onNew={onNew} button="Novo instrutor" toolbarExtra={<label className="filter-select"><span>Segmento</span><select value={segment} onChange={(e) => setSegment(e.target.value)}><option value="">Todos</option>{segments.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>} empty="Nenhum instrutor encontrado." headers={["Instrutor","Matrícula","Contato","Segmento / especialidade","Status",""]} renderRow={(item)=><tr key={item.id}><td><strong>{normalizeName(item.name)}</strong><small>{item.notes||"Cadastro de instrutor"}</small></td><td>{normalizeName(item.registration)}</td><td>{item.email||"—"}<small>{formatPhone(item.phone||"")}</small></td><td>{normalizeName(item.area||"—")}<small>{normalizeName(item.specialty||"")}</small></td><td><Status>{item.active?"Ativo":"Inativo"}</Status></td><td>{isAdmin && <div className="row-actions"><button className="edit-icon" onClick={()=>onEdit(item)} title="Editar" aria-label={`Editar instrutor ${item.name}`}>✎</button><button className="danger-icon" onClick={()=>onDelete(item.id)} title="Apagar definitivamente" aria-label={`Apagar instrutor ${item.name}`}>×</button></div>}</td></tr>}/>; }
 function Users({ items, currentUserId, search, setSearch, onNew, onEdit, onDelete }) { return <TablePage items={items} search={search} setSearch={setSearch} onNew={onNew} button="Novo usuário" empty="Nenhum usuário encontrado." headers={["Usuário","Matrícula","Perfil","Status","Validade da senha",""]} renderRow={(item)=><tr key={item.id}><td><strong>{normalizeName(item.name)}</strong><small>{item.email}</small></td><td>{item.regNumber||"—"}</td><td><span className="role-badge">{item.role}</span></td><td><Status>{item.active?"Ativo":"Inativo"}</Status></td><td>{item.mustChangePassword?<Status>Troca obrigatória</Status>:formatDate(item.passwordExpiresAt)}</td><td><div className="row-actions"><button className="edit-icon" onClick={()=>onEdit(item)} title="Editar" aria-label={`Editar usuário ${item.name}`}>✎</button>{item.id!==currentUserId&&<button className="danger-icon" onClick={()=>onDelete(item.id)} title="Apagar definitivamente" aria-label={`Apagar usuário ${item.name}`}>×</button>}</div></td></tr>}/>; }
 function useActiveBuildings(buildings, currentBuilding) { return useMemo(() => { const active = buildings.filter((item) => item.active); if (currentBuilding && !currentBuilding.active && !active.some((item) => item.id === currentBuilding.id)) return [currentBuilding, ...active]; return active; }, [buildings, currentBuilding]); }
@@ -223,18 +265,206 @@ function UnidadeForm({ initialData, onSave }) {
   const [error, setError] = useState("");
   const change = (key) => (e) => setData(d => ({ ...d, [key]: ["name", "location"].includes(key) ? normalizeNameInput(e.target.value) : e.target.value }));
   function submit(e) { e.preventDefault(); const cnpjDigits = stripNonDigits(data.cnpj), cepDigits = stripNonDigits(data.zipCode), name = normalizeName(data.name), location = normalizeName(data.location); if (!cnpjDigits || !name || !location) return setError("CNPJ, nome da instituição e endereço são obrigatórios."); if (!isValidCNPJ(cnpjDigits)) return setError("Informe um CNPJ válido."); if (cepDigits && cepDigits.length !== 8) return setError("O CEP deve conter 8 dígitos."); setError(""); onSave({ cnpj: cnpjDigits, name, location, zipCode: cepDigits, active: data.active }); }
-  return <form className="entity-form" onSubmit={submit} noValidate>{error && <div className="form-error" role="alert">{error}</div>}<div className="form-grid"><label>CNPJ<input required inputMode="numeric" maxLength="18" value={data.cnpj} onChange={e => setData(d => ({ ...d, cnpj: formatCNPJ(e.target.value) }))} placeholder="00.000.000/0000-00" /></label><label className="span-2">Nome da instituição<input required value={data.name} onChange={change("name")} /></label><label className="span-2">Endereço completo<input required value={data.location} onChange={change("location")} /></label><label>CEP<input inputMode="numeric" maxLength="9" value={data.zipCode} onChange={e => setData(d => ({ ...d, zipCode: formatCEP(e.target.value) }))} placeholder="00000-000" /></label><label>Situação<select value={String(data.active)} onChange={e => setData(d => ({ ...d, active: e.target.value === "true" }))}><option value="true">ATIVA</option><option value="false">INATIVA</option></select></label></div><FormActions /></form>;
+  return <form className="entity-form" onSubmit={submit} noValidate>{error && <div className="form-error" role="alert">{error}</div>}<div className="form-grid"><label>CNPJ<input required inputMode="numeric" maxLength="18" value={data.cnpj} onChange={e => setData(d => ({ ...d, cnpj: formatCNPJ(e.target.value) }))} placeholder="00.000.000/0000-00" /></label><label className="span-2">Nome da instituição<input required maxLength="100" value={data.name} onChange={change("name")} /></label><label className="span-2">Endereço completo<input required maxLength="100" value={data.location} onChange={change("location")} /></label><label>CEP<input inputMode="numeric" maxLength="9" value={data.zipCode} onChange={e => setData(d => ({ ...d, zipCode: formatCEP(e.target.value) }))} placeholder="00000-000" /></label><label>Situação<select value={String(data.active)} onChange={e => setData(d => ({ ...d, active: e.target.value === "true" }))}><option value="true">ATIVA</option><option value="false">INATIVA</option></select></label></div><FormActions /></form>;
 }
 function RoomForm({ buildings, initialBuilding, initialData, onSave }) {
   const roomTypes = ["SALA DE AULA", "LABORATÓRIO", "AUDITÓRIO", "ESPAÇO PEDAGÓGICO"];
   const availableBuildings = useActiveBuildings(buildings, initialData?.building);
-  const [data, setData] = useState({ buildingId: initialData?.building?.id || initialBuilding || "", code: normalizeName(initialData?.code || ""), name: normalizeName(initialData?.name || ""), type: normalizeName(initialData?.type || "SALA DE AULA"), capacity: initialData?.capacity ?? 25, recommendedCapacity: initialData?.recommendedCapacity ?? 20, floor: normalizeName(initialData?.floor || ""), resources: normalizeName(initialData?.resources?.join(", ") || ""), active: initialData?.active ?? true });
+  const [data, setData] = useState({ buildingId: initialData?.building?.id || initialBuilding || "", code: normalizeName(initialData?.code || ""), name: normalizeName(initialData?.name || ""), type: normalizeName(initialData?.type || "SALA DE AULA"), capacity: initialData?.capacity ?? 25, floor: normalizeName(initialData?.floor || ""), resources: normalizeName(initialData?.resources?.join(", ") || ""), active: initialData?.active ?? true });
   const [error, setError] = useState("");
   const change = (key) => (e) => setData({ ...data, [key]: ["code", "name", "type", "floor", "resources"].includes(key) ? normalizeNameInput(e.target.value) : e.target.value });
-  function submit(e) { e.preventDefault(); const cap = Number(data.capacity), rec = Number(data.recommendedCapacity); if (!data.buildingId || !data.code.trim() || !data.name.trim()) return setError("Preencha unidade, código e nome da sala."); if (!Number.isFinite(cap) || cap < 0 || !Number.isFinite(rec) || rec < 0) return setError("As capacidades devem ser números válidos e não negativos."); if (rec > cap) return setError("A capacidade recomendada não pode ser maior que a capacidade total."); setError(""); onSave({ ...data, code: normalizeName(data.code), name: normalizeName(data.name), type: normalizeName(data.type), floor: normalizeName(data.floor) || null, resources: data.resources.split(",").map(x => normalizeName(x)).filter(Boolean), capacity: cap, recommendedCapacity: rec }); }
-  return <form className="entity-form" onSubmit={submit} noValidate>{error && <div className="form-error" role="alert">{error}</div>}<label>Unidade<select required value={data.buildingId} onChange={e => setData({ ...data, buildingId: e.target.value })}><option value="">SELECIONE</option>{availableBuildings.map(item => <option value={item.id} key={item.id}>{normalizeName(item.name)}{!item.active ? " (INATIVA)" : ""}</option>)}</select></label><div className="form-grid"><label>Código<input required value={data.code} onChange={change("code")} /></label><label>Nome<input required value={data.name} onChange={change("name")} /></label><label>Tipo<select value={data.type} onChange={change("type")}>{!roomTypes.includes(data.type) && <option>{data.type}</option>}{roomTypes.map(type => <option key={type}>{type}</option>)}</select></label><label>Andar<input value={data.floor} onChange={change("floor")} /></label><label>Capacidade<input type="number" min="0" required value={data.capacity} onChange={change("capacity")} /></label><label>Capacidade recomendada<input type="number" min="0" required value={data.recommendedCapacity} onChange={change("recommendedCapacity")} /></label><label>Status<select value={String(data.active)} onChange={e => setData({ ...data, active: e.target.value === "true" })}><option value="true">ATIVA</option><option value="false">INATIVA</option></select></label><label className="span-2">Recursos<input value={data.resources} onChange={change("resources")} /></label></div><FormActions /></form>;
+  function submit(e) { e.preventDefault(); const cap = Number(data.capacity); if (!data.buildingId || !data.code.trim() || !data.name.trim()) return setError("Preencha unidade, código e nome da sala."); if (!Number.isFinite(cap) || cap < 0 || cap > 50) return setError("A capacidade deve ser um número entre 0 e 50."); setError(""); onSave({ ...data, code: normalizeName(data.code), name: normalizeName(data.name), type: normalizeName(data.type), floor: normalizeName(data.floor) || null, resources: data.resources.split(",").map(x => normalizeName(x)).filter(Boolean), capacity: cap, recommendedCapacity: cap }); }
+  return <form className="entity-form" onSubmit={submit} noValidate>{error && <div className="form-error" role="alert">{error}</div>}<label>Unidade<select required value={data.buildingId} onChange={e => setData({ ...data, buildingId: e.target.value })}><option value="">SELECIONE</option>{availableBuildings.map(item => <option value={item.id} key={item.id}>{normalizeName(item.name)}{!item.active ? " (INATIVA)" : ""}</option>)}</select></label><div className="form-grid"><label>Código<input required maxLength="15" value={data.code} onChange={change("code")} /></label><label>Nome<input required maxLength="50" value={data.name} onChange={change("name")} /></label><label>Tipo<select value={data.type} onChange={change("type")}>{!roomTypes.includes(data.type) && <option>{data.type}</option>}{roomTypes.map(type => <option key={type}>{type}</option>)}</select></label><label>Andar<input maxLength="2" value={data.floor} onChange={change("floor")} /></label><label>Capacidade<input type="number" min="0" max="50" required value={data.capacity} onChange={change("capacity")} /></label><label>Status<select value={String(data.active)} onChange={e => setData({ ...data, active: e.target.value === "true" })}><option value="true">ATIVA</option><option value="false">INATIVA</option></select></label><label className="span-2">Recursos<input value={data.resources} onChange={change("resources")} /></label></div><FormActions /></form>;
 }
-function TeacherForm({ initialData, onSave }) { const [data, setData] = useState({ registration: normalizeName(initialData?.registration || ""), name: normalizeName(initialData?.name || ""), email: initialData?.email || "", phone: formatPhone(initialData?.phone || ""), area: normalizeName(initialData?.area || ""), specialty: normalizeName(initialData?.specialty || ""), notes: normalizeName(initialData?.notes || ""), active: initialData?.active ?? true }); const [error, setError] = useState(""); const change = (key) => (e) => setData({ ...data, [key]: key === "phone" ? formatPhone(e.target.value) : ["registration", "name", "area", "specialty", "notes"].includes(key) ? normalizeNameInput(e.target.value) : e.target.value }); function submit(e) { e.preventDefault(); const email = data.email.trim(), phone = onlyDigits(data.phone); if (!data.registration.trim() || !data.name.trim()) return setError("Matrícula e nome são obrigatórios."); if (email && !EMAIL_RE.test(email)) return setError("Informe um e-mail válido."); if (phone && phone.length !== 11) return setError("O telefone deve conter 11 dígitos."); setError(""); onSave({ ...data, registration: normalizeName(data.registration), name: normalizeName(data.name), area: normalizeName(data.area), specialty: normalizeName(data.specialty), notes: normalizeName(data.notes), email: email.toLowerCase(), phone }); } return <form className="entity-form" onSubmit={submit} noValidate>{error && <div className="form-error" role="alert">{error}</div>}<div className="form-grid"><label>Matrícula<input required value={data.registration} onChange={change("registration")} /></label><label className="span-2">Nome completo<input required value={data.name} onChange={change("name")} /></label><label>E-mail<input type="email" value={data.email} onChange={change("email")} /></label><label>Telefone<input inputMode="numeric" maxLength="15" value={data.phone} onChange={change("phone")} placeholder="(61) 99999-9999" /></label><label>Segmento de atuação<input value={data.area} onChange={change("area")} /></label><label>Especialidade<input value={data.specialty} onChange={change("specialty")} /></label><label>Status<select value={String(data.active)} onChange={e => setData({ ...data, active: e.target.value === "true" })}><option value="true">ATIVO</option><option value="false">INATIVO</option></select></label></div><label>Observações<textarea rows="3" value={data.notes} onChange={change("notes")} /></label><FormActions /></form>; }
-function CourseForm({ buildings, teachers, initialBuilding, initialData, onSave }) { const statuses = ["PLANEJADA", "EM ANDAMENTO", "LIBERADO PARA MATRÍCULA", "CONCLUÍDA", "CANCELADA"], shifts = ["MATUTINO", "VESPERTINO", "NOTURNO", "INTEGRAL"]; const availableBuildings = useActiveBuildings(buildings, initialData?.building); const [data, setData] = useState({ buildingId: initialData?.building?.id || initialBuilding || "", teacherId: initialData?.teacher?.id || "", code: normalizeName(initialData?.code || ""), name: normalizeName(initialData?.name || ""), abbreviation: normalizeName(initialData?.abbreviation || ""), startDate: String(initialData?.startDate || today).slice(0, 10), endDate: String(initialData?.endDate || today).slice(0, 10), shift: normalizeName(initialData?.shift || "MATUTINO"), startTime: formatTime(initialData?.startTime) || "08:00", endTime: formatTime(initialData?.endTime) || "12:00", weekdays: initialData?.weekdays || ["SEG", "TER", "QUA", "QUI", "SEX"], status: normalizeName(initialData?.status || "EM ANDAMENTO"), instructor: normalizeName(initialData?.instructor || ""), coordinator: normalizeName(initialData?.coordinator || ""), students: initialData?.students ?? 0, workload: initialData?.workload ?? 0, segment: normalizeName(initialData?.segment || ""), type: normalizeName(initialData?.type || "TURMA"), notes: normalizeName(initialData?.notes || "") }); const [error, setError] = useState(""); const change = (key) => (e) => setData({ ...data, [key]: ["code", "name", "abbreviation", "instructor", "coordinator", "segment", "type", "notes"].includes(key) ? normalizeNameInput(e.target.value) : e.target.value }); const selectShift = (e) => { const shift = e.target.value; const times = { MATUTINO: ["08:00", "12:00"], VESPERTINO: ["14:00", "18:00"], NOTURNO: ["19:00", "22:00"] }[shift]; setData(d => ({ ...d, shift, ...(times ? { startTime: times[0], endTime: times[1] } : {}) })); }; const toggle = day => setData(d => ({ ...d, weekdays: d.weekdays.includes(day) ? d.weekdays.filter(x => x !== day) : [...d.weekdays, day] })); const selectTeacher = e => { const teacher = teachers.find(x => x.id === Number(e.target.value)); setData(d => ({ ...d, teacherId: e.target.value, instructor: normalizeName(teacher?.name || d.instructor) })); }; function submit(e) { e.preventDefault(); const students = Number(data.students), workload = Number(data.workload); if (!data.code.trim() || !data.name.trim()) return setError("Código e nome da turma são obrigatórios."); if (data.startDate < today) return setError("A data inicial da turma não pode ser anterior à data atual."); if (!validDateRange(data.startDate, data.endDate)) return setError("A data inicial deve ser anterior ou igual à data final."); if (data.startTime && data.endTime && !validTimeRange(data.startTime, data.endTime)) return setError("O horário inicial deve ser anterior ao horário final."); if (!data.weekdays.length) return setError("Selecione pelo menos um dia de execução."); if (!Number.isFinite(students) || students < 0 || !Number.isFinite(workload) || workload < 0) return setError("Alunos e carga horária devem ser números válidos e não negativos."); setError(""); onSave({ ...data, code: normalizeName(data.code), name: normalizeName(data.name), abbreviation: normalizeName(data.abbreviation), status: normalizeName(data.status), segment: normalizeName(data.segment), type: normalizeName(data.type), students, workload, instructor: normalizeName(data.instructor), coordinator: normalizeName(data.coordinator), notes: normalizeName(data.notes) }); } return <form className="entity-form" onSubmit={submit} noValidate>{error && <div className="form-error" role="alert">{error}</div>}<label>Unidade<select value={data.buildingId} onChange={change("buildingId")}><option value="">SELECIONE</option>{availableBuildings.map(item => <option value={item.id} key={item.id}>{normalizeName(item.name)}{!item.active ? " (INATIVA)" : ""}</option>)}</select></label><div className="form-grid"><label>Código<input required value={data.code} onChange={change("code")} /></label><label className="span-2">Nome da turma<input required value={data.name} onChange={change("name")} /></label><label>Abreviação<input value={data.abbreviation} onChange={change("abbreviation")} /></label><label>Início<input required type="date" min={today} value={data.startDate} onChange={change("startDate")} /></label><label>Término<input required type="date" min={today} value={data.endDate} onChange={change("endDate")} /></label><label>Turno<select value={data.shift} onChange={selectShift}>{!shifts.includes(data.shift) && <option>{data.shift}</option>}{shifts.map(x => <option key={x}>{x}</option>)}</select></label><label>Início do horário<input type="time" value={data.startTime} readOnly /></label><label>Fim do horário<input type="time" value={data.endTime} readOnly /></label><label>Alunos<input type="number" min="0" value={data.students} onChange={change("students")} /></label><label>Carga horária<input type="number" min="0" value={data.workload} onChange={change("workload")} /></label><label>Status<select value={data.status} onChange={change("status")}>{statuses.map(x => <option key={x}>{x}</option>)}</select></label><label>Tipo<input value={data.type} onChange={change("type")} /></label><label>Instrutor cadastrado<select value={data.teacherId} onChange={selectTeacher}><option value="">NÃO VINCULADO</option>{teachers.map(item => <option value={item.id} key={item.id}>{normalizeName(item.name)} · {item.registration}</option>)}</select></label><label>Instrutor exibido<input value={data.instructor} onChange={change("instructor")} /></label><label>Coordenação<input value={data.coordinator} onChange={change("coordinator")} /></label><label className="span-2">Segmento<input value={data.segment} onChange={change("segment")} /></label></div><fieldset><legend>Dias de execução</legend><div className="day-picker">{week.map(day => <button type="button" key={day} className={data.weekdays.includes(day) ? "selected" : ""} onClick={() => toggle(day)}>{day}</button>)}</div></fieldset><label>Observações<textarea rows="3" value={data.notes} onChange={change("notes")} /></label><FormActions /></form>; }
+function TeacherForm({ initialData, onSave }) { const areas = ["TI", "SAÚDE", "GESTÃO", "GASTRONOMIA", "OUTROS"]; const [data, setData] = useState({ registration: normalizeName(initialData?.registration || ""), name: normalizeName(initialData?.name || ""), email: initialData?.email || "", phone: formatPhone(initialData?.phone || ""), area: normalizeName(initialData?.area || "TI"), specialty: normalizeName(initialData?.specialty || ""), notes: normalizeName(initialData?.notes || ""), active: initialData?.active ?? true }); const [error, setError] = useState(""); const change = (key) => (e) => setData({ ...data, [key]: key === "phone" ? formatPhone(e.target.value) : ["registration", "name", "specialty", "notes"].includes(key) ? normalizeNameInput(e.target.value) : e.target.value }); function submit(e) { e.preventDefault(); const email = data.email.trim(), phone = onlyDigits(data.phone); if (!data.registration.trim() || !data.name.trim()) return setError("Matrícula e nome são obrigatórios."); if (email && !EMAIL_RE.test(email)) return setError("Informe um e-mail válido."); if (phone && phone.length !== 11) return setError("O telefone deve conter 11 dígitos."); setError(""); onSave({ ...data, registration: normalizeName(data.registration), name: normalizeName(data.name), area: normalizeName(data.area), specialty: normalizeName(data.specialty), notes: normalizeName(data.notes), email: email.toLowerCase(), phone }); } return <form className="entity-form" onSubmit={submit} noValidate>{error && <div className="form-error" role="alert">{error}</div>}<div className="form-grid"><label>Matrícula<input required maxLength="10" value={data.registration} onChange={change("registration")} /></label><label className="span-2">Nome completo<input required maxLength="100" value={data.name} onChange={change("name")} /></label><label>E-mail<input type="email" maxLength="100" value={data.email} onChange={change("email")} /></label><label>Telefone<input inputMode="numeric" maxLength="15" value={data.phone} onChange={change("phone")} placeholder="(61) 99999-9999" /></label><label>Segmento de atuação<select value={data.area} onChange={change("area")}>{!areas.includes(data.area) && <option>{data.area}</option>}{areas.map(area => <option key={area} value={area}>{area}</option>)}</select></label><label>Especialidade<input maxLength="30" value={data.specialty} onChange={change("specialty")} /></label><label>Status<select value={String(data.active)} onChange={e => setData({ ...data, active: e.target.value === "true" })}><option value="true">ATIVO</option><option value="false">INATIVO</option></select></label></div><label>Observações<textarea rows="3" value={data.notes} onChange={change("notes")} /></label><FormActions /></form>; }
+function CourseForm({ buildings, teachers, initialBuilding, initialData, onSave }) { const statuses = ["PLANEJADA", "EM ANDAMENTO", "LIBERADO PARA MATRÍCULA", "CONCLUÍDA", "CANCELADA"], shifts = ["MATUTINO", "VESPERTINO", "NOTURNO", "INTEGRAL"], segments = ["TI", "SAÚDE", "GESTÃO", "OUTROS"]; const availableBuildings = useActiveBuildings(buildings, initialData?.building); const [data, setData] = useState({ buildingId: initialData?.building?.id || initialBuilding || "", teacherId: initialData?.teacher?.id || "", code: normalizeName(initialData?.code || ""), name: normalizeName(initialData?.name || ""), abbreviation: normalizeName(initialData?.abbreviation || ""), startDate: String(initialData?.startDate || today).slice(0, 10), endDate: String(initialData?.endDate || today).slice(0, 10), shift: normalizeName(initialData?.shift || "MATUTINO"), startTime: formatTime(initialData?.startTime) || "08:00", endTime: formatTime(initialData?.endTime) || "12:00", weekdays: initialData?.weekdays || ["SEG", "TER", "QUA", "QUI", "SEX"], status: normalizeName(initialData?.status || "EM ANDAMENTO"), instructor: normalizeName(initialData?.instructor || ""), coordinator: normalizeName(initialData?.coordinator || ""), students: initialData?.students ?? 0, workload: initialData?.workload ?? 0, segment: normalizeName(initialData?.segment || ""), type: normalizeName(initialData?.type || "TURMA"), notes: normalizeName(initialData?.notes || "") }); const [error, setError] = useState(""); const change = (key) => (e) => { let value = e.target.value; if (key === "students") { value = value === "" ? "" : String(Math.min(50, Math.max(0, Number(value)))); } else if (key === "workload") { value = value === "" ? "" : String(Math.min(1200, Math.max(0, Number(value)))); } else if (["code", "name", "abbreviation", "instructor", "coordinator", "segment", "type", "notes"].includes(key)) { value = normalizeNameInput(value); } setData(d => ({ ...d, [key]: value })); }; const selectShift = (e) => { const shift = e.target.value; const times = { MATUTINO: ["08:00", "12:00"], VESPERTINO: ["14:00", "18:00"], NOTURNO: ["19:00", "22:00"] }[shift]; setData(d => ({ ...d, shift, ...(times ? { startTime: times[0], endTime: times[1] } : {}) })); }; const toggle = day => setData(d => ({ ...d, weekdays: d.weekdays.includes(day) ? d.weekdays.filter(x => x !== day) : [...d.weekdays, day] })); const selectTeacher = e => { const teacher = teachers.find(x => x.id === Number(e.target.value)); setData(d => ({ ...d, teacherId: e.target.value, instructor: normalizeName(teacher?.name || d.instructor) })); }; function submit(e) { e.preventDefault(); const students = Number(data.students), workload = Number(data.workload); if (!data.code.trim() || !data.name.trim()) return setError("Código e nome da turma são obrigatórios."); if (!validDateRange(data.startDate, data.endDate)) return setError("A data inicial deve ser anterior ou igual à data final."); if (data.startTime && data.endTime && !validTimeRange(data.startTime, data.endTime)) return setError("O horário inicial deve ser anterior ao horário final."); if (!data.weekdays.length) return setError("Selecione pelo menos um dia de execução."); if (!Number.isFinite(students) || students < 0 || students > 50) return setError("O número de alunos deve ser um valor entre 0 e 50."); if (!Number.isFinite(workload) || workload < 0 || workload > 1200) return setError("A carga horária deve ser um valor entre 0 e 1200 horas."); setError(""); onSave({ ...data, code: normalizeName(data.code), name: normalizeName(data.name), abbreviation: normalizeName(data.abbreviation), status: normalizeName(data.status), segment: normalizeName(data.segment), type: normalizeName(data.type), students, workload, instructor: normalizeName(data.instructor), coordinator: normalizeName(data.coordinator), notes: normalizeName(data.notes) }); } return <form className="entity-form" onSubmit={submit} noValidate>{error && <div className="form-error" role="alert">{error}</div>}<label>Unidade<select value={data.buildingId} onChange={change("buildingId")}><option value="">SELECIONE</option>{availableBuildings.map(item => <option value={item.id} key={item.id}>{normalizeName(item.name)}{!item.active ? " (INATIVA)" : ""}</option>)}</select></label><div className="form-grid"><label>Código<input required value={data.code} onChange={change("code")} /></label><label className="span-2">Nome da turma<input required maxLength="50" value={data.name} onChange={change("name")} /></label><label>Abreviação<input maxLength="5" value={data.abbreviation} onChange={change("abbreviation")} /></label><label>Início<input required type="date" value={data.startDate} onChange={change("startDate")} /></label><label>Término<input required type="date" value={data.endDate} onChange={change("endDate")} /></label><label>Turno<select value={data.shift} onChange={selectShift}>{!shifts.includes(data.shift) && <option>{data.shift}</option>}{shifts.map(x => <option key={x}>{x}</option>)}</select></label><label>Início do horário<input type="time" value={data.startTime} onChange={change("startTime")} /></label><label>Fim do horário<input type="time" value={data.endTime} onChange={change("endTime")} /></label><label>Alunos<input type="number" min="0" max="50" value={data.students} onChange={change("students")} /></label><label>Carga horária<input type="number" min="0" max="1200" value={data.workload} onChange={change("workload")} /></label><label>Status<select value={data.status} onChange={change("status")}>{statuses.map(x => <option key={x}>{x}</option>)}</select></label><label>Tipo<input value={data.type} onChange={change("type")} /></label><label>Instrutor cadastrado<select value={data.teacherId} onChange={selectTeacher}><option value="">NÃO VINCULADO</option>{teachers.map(item => <option value={item.id} key={item.id}>{normalizeName(item.name)} · {item.registration}</option>)}</select></label><label>Instrutor exibido<input value={data.instructor} onChange={change("instructor")} /></label><label>Coordenação<input maxLength="20" value={data.coordinator} onChange={change("coordinator")} /></label><label className="span-2">Segmento<select value={data.segment} onChange={change("segment")}><option value="">SELECIONE</option>{!segments.includes(data.segment) && data.segment && <option>{data.segment}</option>}{segments.map(x => <option key={x}>{x}</option>)}</select></label></div><fieldset><legend>Dias de execução</legend><div className="day-picker">{week.map(day => <button type="button" key={day} className={data.weekdays.includes(day) ? "selected" : ""} onClick={() => toggle(day)}>{day}</button>)}</div></fieldset><label>Observações<textarea rows="3" value={data.notes} onChange={change("notes")} /></label><FormActions /></form>; }
 
-function InstructorAvailabilityModal({ date, segments, onClose }) { const [items,setItems]=useState([]); const [loading,setLoading]=useState(true); const [error,setError]=useState(""); const [segment,setSegment]=useState(""); const [shift,setShift]=useState(""); const [name,setName]=useState(""); useEffect(()=>{let cancelled=false; async function load(){setLoading(true);setError("");try{const result=await api(`/api/teachers/availability?date=${encodeURIComponent(date)}`);if(!cancelled)setItems(result);}catch(e){if(!cancelled)setError(e.message);}finally{if(!cancelled)setLoading(false);}}load();return()=>{cancelled=true;};},[date]); const filtered=items.filter(x=>(!name||normalizeSearch(x.name).includes(normalizeSearch(name)))&&(!segment||normalizeSearch(x.segment)===normalizeSearch(segment))&&(!shift||x.shifts?.some((value)=>normalizeSearch(value)===normalizeSearch(shift)))); const shiftOptions=["MATUTINO","VESPERTINO","NOTURNO"]; return <Modal wide title={`Instrutores disponíveis em ${formatDate(date)}`} onClose={onClose}><div className="metric-detail"><div className="metric-detail-toolbar"><label className="filter-select"><span>Instrutor</span><input type="search" placeholder="Buscar instrutor" value={name} onChange={(e)=>setName(e.target.value)} /></label><label className="filter-select"><span>Segmento</span><select value={segment} onChange={(e)=>setSegment(e.target.value)}><option value="">Todos</option>{segments.map(x=><option key={x}>{x}</option>)}</select></label><label className="filter-select"><span>Turno</span><select value={shift} onChange={(e)=>setShift(e.target.value)}><option value="">Todos</option>{shiftOptions.map(x=><option key={x}>{x}</option>)}</select></label><span className="result-count">{filtered.length} disponível(is)</span></div>{error&&<div className="form-error" role="alert">{error}</div>}{loading?<Loading/>:<div className="metric-table"><table><thead><tr><th>Instrutor</th><th>Segmento</th><th>Turno</th><th>Dia</th></tr></thead><tbody>{filtered.map(item=><tr key={item.id}><td><strong>{normalizeName(item.name)}</strong><small>{item.registration}</small></td><td>{item.segment}</td><td>{item.shifts?.length?item.shifts.map((value)=>({Matutino:"MATUTINO",Vespertino:"VESPERTINO",Noturno:"NOTURNO",Integral:"INTEGRAL"}[value]||String(value).toUpperCase())).join(", "):"Não informado"}</td><td>{formatDate(item.date)}{item.endDate&&item.endDate!==item.date?` até ${formatDate(item.endDate)}`:""} · {item.day}</td></tr>)}</tbody></table>{!filtered.length&&!error&&<Empty>Nenhum instrutor disponível para os filtros informados.</Empty>}</div>}</div></Modal>; }
+const substitutionReasons = ["ATESTADO MÉDICO", "CASO FORTUITO", "EMERGÊNCIA PESSOAL", "OUTRO"];
+
+function SubstitutionHistoryModal({ course, teachers, isAdmin, onClose, onSave, onDelete }) {
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [search, setSearch] = useState("");
+  const [showForm, setShowForm] = useState(false);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(15);
+
+  const loadHistory = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const result = await api(`/api/substitutions?courseId=${encodeURIComponent(course.id)}`);
+      setItems(Array.isArray(result) ? result : []);
+    } catch (err) {
+      setError(err.message || "Não foi possível carregar o histórico de substituições.");
+    } finally {
+      setLoading(false);
+    }
+  }, [course.id]);
+
+  useEffect(() => { loadHistory(); }, [loadHistory]);
+  useEffect(() => { setPage(1); }, [search, pageSize]);
+
+  const filtered = useMemo(() => {
+    const needle = normalizeSearch(search);
+    if (!needle) return items;
+    return items.filter((item) => normalizeSearch(`${item.date} ${item.originalTeacher?.name} ${item.substituteTeacher?.name} ${item.reason} ${item.notes}`).includes(needle));
+  }, [items, search]);
+
+  const pages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const visible = filtered.slice((page - 1) * pageSize, page * pageSize);
+  const substituteCount = new Set(items.map((item) => item.substituteTeacher?.id).filter(Boolean)).size;
+  const lastSubstitution = items[0]?.date || null;
+
+  useEffect(() => { if (page > pages) setPage(pages); }, [page, pages]);
+
+  async function handleSave(data) {
+    const ok = await onSave(data);
+    if (ok) {
+      setShowForm(false);
+      await loadHistory();
+    }
+    return ok;
+  }
+
+  async function handleDelete(id) {
+    if (!window.confirm("Remover este registro de substituição?")) return;
+    const ok = await onDelete(id);
+    if (ok) await loadHistory();
+  }
+
+  return <Modal wide title="Histórico de substituições" onClose={onClose}>
+    <div className="metric-detail substitution-history">
+      <section className="history-course-info">
+        <div><span>Turma</span><strong>{normalizeName(course.code)} — {normalizeName(course.name)}</strong></div>
+        <div><span>Unidade</span><strong>{normalizeName(course.building?.name || "Não informada")}</strong></div>
+        <div><span>Instrutor titular</span><strong>{normalizeName(course.teacher?.name || course.instructor || "Não informado")}</strong></div>
+        <div><span>Segmento</span><strong>{normalizeName(course.segment || "Não informado")}</strong></div>
+        <div><span>Período</span><strong>{formatDate(course.startDate)} até {formatDate(course.endDate)}</strong></div>
+        <div><span>Turno</span><strong>{normalizeName(course.shift || "Não informado")}</strong></div>
+      </section>
+
+      <section className="history-summary">
+        <div><span>Total de substituições</span><strong>{items.length}</strong></div>
+        <div><span>Última substituição</span><strong>{lastSubstitution ? formatDate(lastSubstitution) : "—"}</strong></div>
+        <div><span>Substitutos diferentes</span><strong>{substituteCount}</strong></div>
+      </section>
+
+      {!showForm && <div className="metric-detail-toolbar history-toolbar">
+        <label className="filter-select"><span>Buscar</span><input type="search" placeholder="Instrutor, motivo ou observação..." value={search} onChange={(e) => setSearch(e.target.value)} /></label>
+        {isAdmin && <button className="primary" type="button" onClick={() => setShowForm(true)}>+ Registrar substituição</button>}
+      </div>}
+
+      {showForm && <div className="history-form-panel">
+        <div className="history-form-header"><strong>Nova substituição</strong><button type="button" className="text-action" onClick={() => setShowForm(false)}>Voltar ao histórico</button></div>
+        <SubstitutionForm courses={[course]} teachers={teachers} initialCourse={course} onSave={handleSave} />
+      </div>}
+
+      {error && <div className="form-error" role="alert">{error}</div>}
+      {loading ? <Loading /> : !showForm && <>
+        {visible.length ? <div className="metric-table"><table><thead><tr><th>Data</th><th>Instrutor titular</th><th>Substituto</th><th>Motivo</th><th>Observações</th><th>Registrado em</th><th /></tr></thead><tbody>{visible.map((item) => <tr key={item.id}><td>{formatDate(item.date)}</td><td>{normalizeName(item.originalTeacher?.name || "—")}</td><td>{normalizeName(item.substituteTeacher?.name || "—")}</td><td>{normalizeName(item.reason || "Não informado")}</td><td>{item.notes ? normalizeName(item.notes) : <span className="muted-text">Não informado</span>}</td><td>{item.createdAt ? new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" }).format(new Date(item.createdAt)) : "—"}</td><td>{isAdmin && <button className="danger-icon" type="button" onClick={() => handleDelete(item.id)} title="Remover registro" aria-label={`Remover substituição ${item.id}`}>×</button>}</td></tr>)}</tbody></table></div> : <Empty>{items.length ? "Nenhuma substituição corresponde à busca informada." : "Nenhuma substituição registrada para esta turma."}</Empty>}
+        {filtered.length > 0 && <div className="pagination-row"><PageSizeSelector pageSize={pageSize} setPageSize={setPageSize} /><Pagination page={page} total={filtered.length} pageSize={pageSize} onChange={setPage} /></div>}
+      </>}
+    </div>
+  </Modal>;
+}
+
+function SubstitutionForm({ courses, teachers, initialCourse, onSave }) {
+  const [data, setData] = useState({
+    courseId: initialCourse?.id || "",
+    date: today,
+    substituteTeacherId: "",
+    reason: "ATESTADO MÉDICO",
+    notes: "",
+  });
+  const [error, setError] = useState("");
+  const [salvando, setSalvando] = useState(false);
+
+  const selectedCourse = courses.find((course) => course.id === Number(data.courseId));
+  const originalTeacher = selectedCourse?.teacher || null;
+  const substituteOptions = teachers.filter((teacher) => teacher.active && teacher.id !== originalTeacher?.id);
+
+  function change(key) {
+    return (e) => setData((current) => ({ ...current, [key]: e.target.value }));
+  }
+
+  async function submit(e) {
+    e.preventDefault();
+    if (!data.courseId) return setError("Selecione a turma.");
+    if (!data.date) return setError("Informe a data da substituição.");
+    if (!data.substituteTeacherId) return setError("Selecione o professor substituto.");
+    setError("");
+    setSalvando(true);
+    try {
+      await onSave({
+        courseId: Number(data.courseId),
+        date: data.date,
+        substituteTeacherId: Number(data.substituteTeacherId),
+        originalTeacherId: originalTeacher?.id || undefined,
+        reason: data.reason,
+        notes: data.notes,
+      });
+    } finally {
+      setSalvando(false);
+    }
+  }
+
+  return (
+    <form className="entity-form" onSubmit={submit} noValidate>
+      {error && <div className="form-error" role="alert">{error}</div>}
+      <label>
+        Turma
+        <select required value={data.courseId} onChange={change("courseId")} disabled={Boolean(initialCourse)}>
+          <option value="">SELECIONE</option>
+          {courses.map((course) => (
+            <option value={course.id} key={course.id}>
+              {normalizeName(course.code)} · {normalizeName(course.name)}
+            </option>
+          ))}
+        </select>
+      </label>
+      <div className="form-grid">
+        <label>
+          Data da substituição
+          <input required type="date" value={data.date} onChange={change("date")} />
+        </label>
+        <label>
+          Professor titular
+          <input value={originalTeacher ? normalizeName(originalTeacher.name) : "SEM PROFESSOR TITULAR CADASTRADO"} readOnly />
+        </label>
+        <label>
+          Professor substituto
+          <select required value={data.substituteTeacherId} onChange={change("substituteTeacherId")}>
+            <option value="">SELECIONE</option>
+            {substituteOptions.map((teacher) => (
+              <option value={teacher.id} key={teacher.id}>
+                {normalizeName(teacher.name)} · {teacher.registration}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Motivo
+          <select value={data.reason} onChange={change("reason")}>
+            {substitutionReasons.map((reason) => (
+              <option key={reason}>{reason}</option>
+            ))}
+          </select>
+        </label>
+      </div>
+      <label>
+        Observações
+        <textarea rows="3" value={data.notes} onChange={change("notes")} />
+      </label>
+      <div className="form-actions">
+        <button className="primary" type="submit" disabled={salvando}>
+          {salvando ? "Salvando…" : "Registrar substituição"}
+        </button>
+      </div>
+    </form>
+  );
+}
+
+function InstructorAvailabilityModal(
+{ date, segments, onClose }) { const [items,setItems]=useState([]); const [loading,setLoading]=useState(true); const [error,setError]=useState(""); const [segment,setSegment]=useState(""); const [shift,setShift]=useState(""); const [name,setName]=useState(""); useEffect(()=>{let cancelled=false; async function load(){setLoading(true);setError("");try{const result=await api(`/api/teachers/availability?date=${encodeURIComponent(date)}`);if(!cancelled)setItems(result);}catch(e){if(!cancelled)setError(e.message);}finally{if(!cancelled)setLoading(false);}}load();return()=>{cancelled=true;};},[date]); const filtered=items.filter(x=>(!name||normalizeSearch(x.name).includes(normalizeSearch(name)))&&(!segment||normalizeSearch(x.segment)===normalizeSearch(segment))&&(!shift||x.shifts?.some((value)=>normalizeSearch(value)===normalizeSearch(shift)))); const shiftOptions=["MATUTINO","VESPERTINO","NOTURNO"]; return <Modal wide title={`Instrutores disponíveis em ${formatDate(date)}`} onClose={onClose}><div className="metric-detail"><div className="metric-detail-toolbar"><label className="filter-select"><span>Instrutor</span><input type="search" placeholder="Buscar instrutor" value={name} onChange={(e)=>setName(e.target.value)} /></label><label className="filter-select"><span>Segmento</span><select value={segment} onChange={(e)=>setSegment(e.target.value)}><option value="">Todos</option>{segments.map(x=><option key={x}>{x}</option>)}</select></label><label className="filter-select"><span>Turno</span><select value={shift} onChange={(e)=>setShift(e.target.value)}><option value="">Todos</option>{shiftOptions.map(x=><option key={x}>{x}</option>)}</select></label><span className="result-count">{filtered.length} disponível(is)</span></div>{error&&<div className="form-error" role="alert">{error}</div>}{loading?<Loading/>:<div className="metric-table"><table><thead><tr><th>Instrutor</th><th>Segmento</th><th>Turno</th><th>Dia</th></tr></thead><tbody>{filtered.map(item=><tr key={item.id}><td><strong>{normalizeName(item.name)}</strong><small>{item.registration}</small></td><td>{item.segment}</td><td>{item.shifts?.length?item.shifts.map((value)=>({Matutino:"MATUTINO",Vespertino:"VESPERTINO",Noturno:"NOTURNO",Integral:"INTEGRAL"}[value]||String(value).toUpperCase())).join(", "):"Não informado"}</td><td>{formatDate(item.date)}{item.endDate&&item.endDate!==item.date?` até ${formatDate(item.endDate)}`:""} · {item.day}</td></tr>)}</tbody></table>{!filtered.length&&!error&&<Empty>Nenhum instrutor disponível para os filtros informados.</Empty>}</div>}</div></Modal>; }
