@@ -1,0 +1,66 @@
+/* Popup de confirmação de exclusão (substitui o window.confirm do navegador) */
+.confirm-backdrop { z-index: 100; }
+
+.modal.confirm-dialog {
+  width: min(420px, 92vw);
+  padding: 30px 28px 24px;
+  text-align: center;
+  animation: confirm-pop 0.16s ease-out;
+}
+
+.confirm-icon {
+  width: 54px;
+  height: 54px;
+  margin: 0 auto 14px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--color-error-bg);
+  border: 1px solid var(--color-error-border);
+  color: var(--color-error-text);
+  font-size: 28px;
+  font-weight: 800;
+}
+
+.confirm-dialog h2 {
+  font-size: 19px;
+  margin: 0 0 8px;
+  color: var(--color-text-primary);
+}
+
+.confirm-dialog p {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--color-text-secondary);
+  margin: 0 0 22px;
+}
+
+.confirm-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+}
+
+.confirm-actions .secondary,
+.confirm-actions .danger-button {
+  min-width: 130px;
+}
+
+.danger-button {
+  border-radius: 9px;
+  padding: 11px 17px;
+  font-weight: 750;
+  cursor: pointer;
+  background: #c0392b;
+  color: #fff;
+  box-shadow: 0 6px 15px #c0392b30;
+}
+
+.danger-button:hover {
+  background: #a32020;
+}
+
+@keyframes confirm-pop {
+  from { transform: scale(0.94); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}

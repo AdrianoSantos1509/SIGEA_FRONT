@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { api } from "../../services/api.js";
 import CorrectedAllocationForm from "./CorrectedAllocationForm.jsx";
 import "./HomePage.css";
+import "./ConfirmDialog.css";
 
 const tabs = [
   ["dashboard", "▦", "Visão geral"],
@@ -63,6 +64,25 @@ function Modal({ title, children, onClose, wide = false }) {
   return <div className="modal-backdrop" onMouseDown={onClose}><section className={`modal ${wide ? "modal-wide" : ""}`} onMouseDown={(e) => e.stopPropagation()}><header><div><span className="eyebrow">SIGEA</span><h2>{title}</h2></div><button className="icon-button" onClick={onClose} aria-label="Fechar">×</button></header>{children}</section></div>;
 }
 
+function ConfirmDialog({ title, message, confirmLabel = "Sim, excluir", onConfirm, onCancel }) {
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === "Escape") onCancel(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onCancel]);
+  return <div className="modal-backdrop confirm-backdrop" onMouseDown={onCancel}>
+    <section className="modal confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="confirm-title" aria-describedby="confirm-message" onMouseDown={(e) => e.stopPropagation()}>
+      <div className="confirm-icon" aria-hidden="true">!</div>
+      <h2 id="confirm-title">{title}</h2>
+      <p id="confirm-message">{message}</p>
+      <div className="confirm-actions">
+        <button type="button" className="secondary" onClick={onCancel}>Cancelar</button>
+        <button type="button" className="danger-button" onClick={onConfirm} autoFocus>{confirmLabel}</button>
+      </div>
+    </section>
+  </div>;
+}
+
 function Empty({ children }) { return <div className="empty-state"><span>⌁</span><p>{children}</p></div>; }
 function Loading() { return <div className="loading"><i /><span>Carregando dados...</span></div>; }
 function Status({ children }) { const text = String(children || "ATIVA").toLocaleUpperCase("pt-BR"); const type = /pend|sem|cancel|inativ|ocupad/i.test(text) ? "warning" : "success"; return <span className={`status ${type}`}>{text}</span>; }
@@ -89,6 +109,7 @@ export default function HomePage() {
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState(null);
   const [modal, setModal] = useState(null);
+  const [confirmDialog, setConfirmDialog] = useState(null);
 
   const query = buildingId ? `buildingId=${buildingId}` : "";
   const refresh = useCallback(async () => {
@@ -151,10 +172,23 @@ export default function HomePage() {
   const visibleTabs = tabs.filter(([id]) => id !== "users" || user.role === "ADMIN");
 
   function logout() { localStorage.removeItem("sigea_token"); localStorage.removeItem("sigea_user"); navigate("/"); }
-  async function remove(path, confirmation) {
-    if (!window.confirm(confirmation)) return;
-    try { await api(path, { method: "DELETE" }); setNotice({ type: "success", text: "Registro removido." }); refresh(); }
-    catch (error) { setNotice({ type: "error", text: error.message }); }
+  function askConfirm({ title = "Confirmar exclusão", message, confirmLabel = "Sim, excluir", onConfirm }) {
+    setConfirmDialog({ title, message, confirmLabel, onConfirm });
+  }
+  async function runConfirm() {
+    const action = confirmDialog?.onConfirm;
+    setConfirmDialog(null);
+    if (action) await action();
+  }
+  function remove(path, message, title) {
+    askConfirm({
+      title,
+      message,
+      onConfirm: async () => {
+        try { await api(path, { method: "DELETE" }); setNotice({ type: "success", text: "Registro removido." }); refresh(); }
+        catch (error) { setNotice({ type: "error", text: error.message }); }
+      },
+    });
   }
   async function save(path, payload, method = "POST") {
     try {
@@ -185,13 +219,13 @@ export default function HomePage() {
         {notice && <div className={`toast ${notice.type}`}>{notice.type === "success" ? "✓" : "!"} {notice.text}</div>}
         {loading ? <Loading /> : <>
           {tab === "dashboard" && <Dashboard dashboard={dashboard} date={date} setTab={setTab} isAdmin={isAdmin} onNew={() => setModal("allocation")} onInstructors={() => setModal("instructors")} onEditRoom={(item) => setModal({ type: "room", item })} />}
-          {tab === "buildings" && <Unidades items={filteredBuildings} search={search} setSearch={setSearch} isAdmin={isAdmin} onNew={isAdmin ? () => setModal("building") : undefined} onEdit={(item) => setModal({ type: "building", item })} onDelete={(id) => remove(`/api/buildings/${id}`, "Apagar esta unidade? Essa ação não poderá ser desfeita.")} />}
-          {tab === "rooms" && <Rooms items={filteredRooms} search={search} setSearch={setSearch} isAdmin={isAdmin} onNew={isAdmin ? () => setModal("room") : undefined} onEdit={(item) => setModal({ type: "room", item })} onDelete={(id) => remove(`/api/classrooms/${id}`, "Remover esta sala e suas alocações?")} />}
-          {tab === "teachers" && <Teachers items={filteredTeachers} segments={teacherSegments} search={search} setSearch={setSearch} isAdmin={isAdmin} onNew={isAdmin ? () => setModal("teacher") : undefined} onEdit={(item) => setModal({ type: "teacher", item })} onDelete={(id) => remove(`/api/teachers/${id}`, "Apagar definitivamente este instrutor? Esta ação não poderá ser desfeita.")} />}
-          {tab === "courses" && <Courses items={filteredCourses} search={search} setSearch={setSearch} isAdmin={isAdmin} onNew={isAdmin ? () => setModal("course") : undefined} onEdit={(item) => setModal({ type: "course", item })} onAllocate={(course) => setModal({ type: "allocation", course })} onSubstitute={(course) => setModal({ type: "substitution", course })} onHistory={(course) => setModal({ type: "substitution-history", course })} segments={courseSegments} onDelete={(id) => remove(`/api/courses/${id}`, "Remover esta turma e suas alocações?")} />}
-          {tab === "allocations" && <Allocations items={filteredAllocations} search={search} setSearch={setSearch} isAdmin={isAdmin} onNew={isAdmin ? () => setModal("allocation") : undefined} onEdit={(item) => setModal({ type: "allocation", item })} onDelete={(id) => remove(`/api/occupancies/${id}`, "Remover esta alocação?")} />}
-          {tab === "substitutions" && <Substitutions items={filteredSubstitutions} search={search} setSearch={setSearch} isAdmin={isAdmin} onNew={isAdmin ? () => setModal("substitution") : undefined} onDelete={(id) => remove(`/api/substitutions/${id}`, "Remover este registro de substituição?")} />}
-          {tab === "users" && <Users items={filteredUsers} currentUserId={user.id} search={search} setSearch={setSearch} onNew={() => setModal("user")} onEdit={(item) => setModal({ type: "user", item })} onDelete={(id) => remove(`/api/users/${id}`, "Apagar definitivamente este usuário? Esta ação não poderá ser desfeita.")} />}
+          {tab === "buildings" && <Unidades items={filteredBuildings} search={search} setSearch={setSearch} isAdmin={isAdmin} onNew={isAdmin ? () => setModal("building") : undefined} onEdit={(item) => setModal({ type: "building", item })} onDelete={(id) => remove(`/api/buildings/${id}`, "Esta unidade será excluída. Essa ação não poderá ser desfeita.", "Excluir unidade")} />}
+          {tab === "rooms" && <Rooms items={filteredRooms} search={search} setSearch={setSearch} isAdmin={isAdmin} onNew={isAdmin ? () => setModal("room") : undefined} onEdit={(item) => setModal({ type: "room", item })} onDelete={(id) => remove(`/api/classrooms/${id}`, "Esta sala e todas as suas alocações serão removidas. Essa ação não poderá ser desfeita.", "Excluir sala")} />}
+          {tab === "teachers" && <Teachers items={filteredTeachers} segments={teacherSegments} search={search} setSearch={setSearch} isAdmin={isAdmin} onNew={isAdmin ? () => setModal("teacher") : undefined} onEdit={(item) => setModal({ type: "teacher", item })} onDelete={(id) => remove(`/api/teachers/${id}`, "Este instrutor será excluído definitivamente. Essa ação não poderá ser desfeita.", "Excluir instrutor")} />}
+          {tab === "courses" && <Courses items={filteredCourses} search={search} setSearch={setSearch} isAdmin={isAdmin} onNew={isAdmin ? () => setModal("course") : undefined} onEdit={(item) => setModal({ type: "course", item })} onAllocate={(course) => setModal({ type: "allocation", course })} onSubstitute={(course) => setModal({ type: "substitution", course })} onHistory={(course) => setModal({ type: "substitution-history", course })} segments={courseSegments} onDelete={(id) => remove(`/api/courses/${id}`, "Esta turma e todas as suas alocações serão removidas. Essa ação não poderá ser desfeita.", "Excluir turma")} />}
+          {tab === "allocations" && <Allocations items={filteredAllocations} search={search} setSearch={setSearch} isAdmin={isAdmin} onNew={isAdmin ? () => setModal("allocation") : undefined} onEdit={(item) => setModal({ type: "allocation", item })} onDelete={(id) => remove(`/api/occupancies/${id}`, "Esta alocação será removida. Essa ação não poderá ser desfeita.", "Excluir alocação")} />}
+          {tab === "substitutions" && <Substitutions items={filteredSubstitutions} search={search} setSearch={setSearch} isAdmin={isAdmin} onNew={isAdmin ? () => setModal("substitution") : undefined} onDelete={(id) => remove(`/api/substitutions/${id}`, "Este registro de substituição será removido. Essa ação não poderá ser desfeita.", "Excluir substituição")} />}
+          {tab === "users" && <Users items={filteredUsers} currentUserId={user.id} search={search} setSearch={setSearch} onNew={() => setModal("user")} onEdit={(item) => setModal({ type: "user", item })} onDelete={(id) => remove(`/api/users/${id}`, "Este usuário será excluído definitivamente. Essa ação não poderá ser desfeita.", "Excluir usuário")} />}
         </>}
       </main>
       {(modal === "building" || modal?.type === "building") && <Modal title={modal?.item ? "Editar unidade" : "Nova unidade"} onClose={() => setModal(null)}><UnidadeForm initialData={modal?.item} onSave={(data) => save(modal?.item ? `/api/buildings/${modal.item.id}` : "/api/buildings", data, modal?.item ? "PUT" : "POST")} /></Modal>}
@@ -201,7 +235,8 @@ export default function HomePage() {
       {(modal === "user" || modal?.type === "user") && <Modal title={modal?.item ? "Editar usuário" : "Novo usuário"} onClose={() => setModal(null)}><UserForm initialData={modal?.item} onSave={(data) => save(modal?.item ? `/api/users/${modal.item.id}` : "/api/users", data, modal?.item ? "PUT" : "POST")} /></Modal>}
       {(modal === "allocation" || modal?.type === "allocation") && <Modal title={modal?.item ? "Editar alocação" : "Nova alocação"} onClose={() => setModal(null)}><CorrectedAllocationForm rooms={rooms} courses={courses} initialCourse={modal?.course} initialData={modal?.item} date={date} buildingId={buildingId} onSave={(data) => save(modal?.item ? `/api/occupancies/${modal.item.id}` : "/api/occupancies", data, modal?.item ? "PUT" : "POST").then((ok) => { if (ok) { setTab("allocations"); if (data.startDate) setDate(data.startDate); } })} /></Modal>}
       {(modal === "substitution" || modal?.type === "substitution") && <Modal title="Registrar substituição" onClose={() => setModal(null)}><SubstitutionForm courses={courses} teachers={teachers} initialCourse={modal?.course} onSave={(data) => save("/api/substitutions", data, "POST").then((ok) => { if (ok) setTab("substitutions"); })} /></Modal>}
-      {modal?.type === "substitution-history" && <SubstitutionHistoryModal course={modal.course} teachers={teachers} isAdmin={isAdmin} onClose={() => setModal(null)} onSave={async (data) => { try { await api("/api/substitutions", { method: "POST", body: JSON.stringify(data) }); setNotice({ type: "success", text: "Substituição registrada com sucesso." }); await refresh(); return true; } catch (error) { setNotice({ type: "error", text: error.message }); return false; } }} onDelete={async (id) => { try { await api(`/api/substitutions/${id}`, { method: "DELETE" }); setNotice({ type: "success", text: "Substituição removida." }); await refresh(); return true; } catch (error) { setNotice({ type: "error", text: error.message }); return false; } }} /> }
+      {modal?.type === "substitution-history" && <SubstitutionHistoryModal course={modal.course} teachers={teachers} isAdmin={isAdmin} askConfirm={askConfirm} onClose={() => setModal(null)} onSave={async (data) => { try { await api("/api/substitutions", { method: "POST", body: JSON.stringify(data) }); setNotice({ type: "success", text: "Substituição registrada com sucesso." }); await refresh(); return true; } catch (error) { setNotice({ type: "error", text: error.message }); return false; } }} onDelete={async (id) => { try { await api(`/api/substitutions/${id}`, { method: "DELETE" }); setNotice({ type: "success", text: "Substituição removida." }); await refresh(); return true; } catch (error) { setNotice({ type: "error", text: error.message }); return false; } }} /> }
+      {confirmDialog && <ConfirmDialog title={confirmDialog.title} message={confirmDialog.message} confirmLabel={confirmDialog.confirmLabel} onConfirm={runConfirm} onCancel={() => setConfirmDialog(null)} />}
       {modal === "instructors" && <InstructorAvailabilityModal date={date} segments={teacherSegments} onClose={() => setModal(null)} />}
     </div>
   );
@@ -281,7 +316,7 @@ function CourseForm({ buildings, teachers, initialBuilding, initialData, onSave 
 
 const substitutionReasons = ["ATESTADO MÉDICO", "CASO FORTUITO", "EMERGÊNCIA PESSOAL", "OUTRO"];
 
-function SubstitutionHistoryModal({ course, teachers, isAdmin, onClose, onSave, onDelete }) {
+function SubstitutionHistoryModal({ course, teachers, isAdmin, onClose, onSave, onDelete, askConfirm }) {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -328,10 +363,15 @@ function SubstitutionHistoryModal({ course, teachers, isAdmin, onClose, onSave, 
     return ok;
   }
 
-  async function handleDelete(id) {
-    if (!window.confirm("Remover este registro de substituição?")) return;
-    const ok = await onDelete(id);
-    if (ok) await loadHistory();
+  function handleDelete(id) {
+    askConfirm({
+      title: "Excluir substituição",
+      message: "Este registro será removido do histórico da turma. Essa ação não poderá ser desfeita.",
+      onConfirm: async () => {
+        const ok = await onDelete(id);
+        if (ok) await loadHistory();
+      },
+    });
   }
 
   return <Modal wide title="Histórico de substituições" onClose={onClose}>
