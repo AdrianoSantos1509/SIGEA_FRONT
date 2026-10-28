@@ -236,7 +236,7 @@ export default function HomePage() {
       {(modal === "user" || modal?.type === "user") && <Modal title={modal?.item ? "Editar usuário" : "Novo usuário"} onClose={() => setModal(null)}><UserForm initialData={modal?.item} onSave={(data) => save(modal?.item ? `/api/users/${modal.item.id}` : "/api/users", data, modal?.item ? "PUT" : "POST")} /></Modal>}
       {(modal === "allocation" || modal?.type === "allocation") && <Modal title={modal?.item ? "Editar alocação" : "Nova alocação"} onClose={() => setModal(null)}><CorrectedAllocationForm rooms={rooms} courses={courses} initialCourse={modal?.course} initialData={modal?.item} date={date} buildingId={buildingId} onSave={(data) => save(modal?.item ? `/api/occupancies/${modal.item.id}` : "/api/occupancies", data, modal?.item ? "PUT" : "POST").then((ok) => { if (ok) { setTab("allocations"); if (data.startDate) setDate(data.startDate); } })} /></Modal>}
       {(modal === "substitution" || modal?.type === "substitution") && <Modal title="Registrar substituição" onClose={() => setModal(null)}><SubstitutionForm courses={courses} teachers={teachers} initialCourse={modal?.course} onSave={(data) => save("/api/substitutions", data, "POST").then((ok) => { if (ok) setTab("substitutions"); })} /></Modal>}
-      {modal?.type === "substitution-history" && <SubstitutionHistoryModal course={modal.course} teachers={teachers} isAdmin={isAdmin} askConfirm={askConfirm} onClose={() => setModal(null)} onSave={async (data) => { try { await api("/api/substitutions", { method: "POST", body: JSON.stringify(data) }); setNotice({ type: "success", text: "Substituição registrada com sucesso." }); await refresh(); return true; } catch (error) { setNotice({ type: "error", text: error.message }); return false; } }} onDelete={async (id) => { try { await api(`/api/substitutions/${id}`, { method: "DELETE" }); setNotice({ type: "success", text: "Substituição removida." }); await refresh(); return true; } catch (error) { setNotice({ type: "error", text: error.message }); return false; } }} /> }
+      {modal?.type === "substitution-history" && <SubstitutionHistoryModal course={modal.course} teachers={teachers} isAdmin={isAdmin} askConfirm={askConfirm} onClose={() => setModal(null)} onSave={async (data) => { try { await api("/api/substitutions", { method: "POST", body: JSON.stringify(data) }); setNotice({ type: "success", text: "Substituição registrada com sucesso." }); await refresh(); return true; } catch (error) { setNotice({ type: "error", text: error.message }); return false; } }} onEdit={async (id, data) => { try { await api(`/api/substitutions/${id}`, { method: "PUT", body: JSON.stringify(data) }); setNotice({ type: "success", text: "Substituição atualizada com sucesso." }); await refresh(); return true; } catch (error) { setNotice({ type: "error", text: error.message }); return false; } }} onDelete={async (id) => { try { await api(`/api/substitutions/${id}`, { method: "DELETE" }); setNotice({ type: "success", text: "Substituição removida." }); await refresh(); return true; } catch (error) { setNotice({ type: "error", text: error.message }); return false; } }} /> }
       {confirmDialog && <ConfirmDialog title={confirmDialog.title} message={confirmDialog.message} confirmLabel={confirmDialog.confirmLabel} onConfirm={runConfirm} onCancel={() => setConfirmDialog(null)} />}
       {modal === "instructors" && <InstructorAvailabilityModal date={date} segments={teacherSegments} onClose={() => setModal(null)} />}
     </div>
@@ -317,12 +317,13 @@ function CourseForm({ buildings, teachers, initialBuilding, initialData, onSave 
 
 const substitutionReasons = ["ATESTADO MÉDICO", "CASO FORTUITO", "EMERGÊNCIA PESSOAL", "DAY OFF", "OUTRO"];
 
-function SubstitutionHistoryModal({ course, teachers, isAdmin, onClose, onSave, onDelete, askConfirm }) {
+function SubstitutionHistoryModal({ course, teachers, isAdmin, onClose, onSave, onEdit, onDelete, askConfirm }) {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
   const [showForm, setShowForm] = useState(false);
+  const [editingItem, setEditingItem] = useState(null);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(15);
 
@@ -356,12 +357,28 @@ function SubstitutionHistoryModal({ course, teachers, isAdmin, onClose, onSave, 
   useEffect(() => { if (page > pages) setPage(pages); }, [page, pages]);
 
   async function handleSave(data) {
-    const ok = await onSave(data);
+    const ok = editingItem ? await onEdit(editingItem.id, data) : await onSave(data);
     if (ok) {
       setShowForm(false);
+      setEditingItem(null);
       await loadHistory();
     }
     return ok;
+  }
+
+  function openNewForm() {
+    setEditingItem(null);
+    setShowForm(true);
+  }
+
+  function openEditForm(item) {
+    setEditingItem(item);
+    setShowForm(true);
+  }
+
+  function closeForm() {
+    setShowForm(false);
+    setEditingItem(null);
   }
 
   function handleDelete(id) {
@@ -394,30 +411,30 @@ function SubstitutionHistoryModal({ course, teachers, isAdmin, onClose, onSave, 
 
       {!showForm && <div className="metric-detail-toolbar history-toolbar">
         <label className="filter-select"><span>Buscar</span><input type="search" placeholder="Instrutor, motivo ou observação..." value={search} onChange={(e) => setSearch(e.target.value)} /></label>
-        {isAdmin && <button className="primary" type="button" onClick={() => setShowForm(true)}>+ Registrar substituição</button>}
+        {isAdmin && <button className="primary" type="button" onClick={openNewForm}>+ Registrar substituição</button>}
       </div>}
 
       {showForm && <div className="history-form-panel">
-        <div className="history-form-header"><strong>Nova substituição</strong><button type="button" className="text-action" onClick={() => setShowForm(false)}>Voltar ao histórico</button></div>
-        <SubstitutionForm courses={[course]} teachers={teachers} initialCourse={course} onSave={handleSave} />
+        <div className="history-form-header"><strong>{editingItem ? "Editar substituição" : "Nova substituição"}</strong><button type="button" className="text-action" onClick={closeForm}>Voltar ao histórico</button></div>
+        <SubstitutionForm courses={[course]} teachers={teachers} initialCourse={course} initialData={editingItem} onSave={handleSave} />
       </div>}
 
       {error && <div className="form-error" role="alert">{error}</div>}
       {loading ? <Loading /> : !showForm && <>
-        {visible.length ? <div className="metric-table"><table><thead><tr><th>Data</th><th>Instrutor titular</th><th>Substituto</th><th>Motivo</th><th>Observações</th><th>Registrado em</th><th /></tr></thead><tbody>{visible.map((item) => <tr key={item.id}><td>{formatDate(item.date)}</td><td>{normalizeName(item.originalTeacher?.name || "—")}</td><td>{normalizeName(item.substituteTeacher?.name || "—")}</td><td>{normalizeName(item.reason || "Não informado")}</td><td>{item.notes ? normalizeName(item.notes) : <span className="muted-text">Não informado</span>}</td><td>{item.createdAt ? new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" }).format(new Date(item.createdAt)) : "—"}</td><td>{isAdmin && <button className="danger-icon" type="button" onClick={() => handleDelete(item.id)} title="Remover registro" aria-label={`Remover substituição ${item.id}`}>×</button>}</td></tr>)}</tbody></table></div> : <Empty>{items.length ? "Nenhuma substituição corresponde à busca informada." : "Nenhuma substituição registrada para esta turma."}</Empty>}
+        {visible.length ? <div className="metric-table"><table><thead><tr><th>Data</th><th>Instrutor titular</th><th>Substituto</th><th>Motivo</th><th>Observações</th><th>Registrado em</th><th /></tr></thead><tbody>{visible.map((item) => <tr key={item.id}><td>{formatDate(item.date)}</td><td>{normalizeName(item.originalTeacher?.name || "—")}</td><td>{normalizeName(item.substituteTeacher?.name || "—")}</td><td>{normalizeName(item.reason || "Não informado")}</td><td>{item.notes ? normalizeName(item.notes) : <span className="muted-text">Não informado</span>}</td><td>{item.createdAt ? new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" }).format(new Date(item.createdAt)) : "—"}</td><td>{isAdmin && <div className="row-actions"><button className="edit-icon" type="button" onClick={() => openEditForm(item)} title="Editar substituição" aria-label={`Editar substituição ${item.id}`}>✎</button><button className="danger-icon" type="button" onClick={() => handleDelete(item.id)} title="Remover registro" aria-label={`Remover substituição ${item.id}`}>×</button></div>}</td></tr>)}</tbody></table></div> : <Empty>{items.length ? "Nenhuma substituição corresponde à busca informada." : "Nenhuma substituição registrada para esta turma."}</Empty>}
         {filtered.length > 0 && <div className="pagination-row"><PageSizeSelector pageSize={pageSize} setPageSize={setPageSize} /><Pagination page={page} total={filtered.length} pageSize={pageSize} onChange={setPage} /></div>}
       </>}
     </div>
   </Modal>;
 }
 
-function SubstitutionForm({ courses, teachers, initialCourse, onSave }) {
+function SubstitutionForm({ courses, teachers, initialCourse, initialData, onSave }) {
   const [data, setData] = useState({
-    courseId: initialCourse?.id || "",
-    date: today,
-    substituteTeacherId: "",
-    reason: "ATESTADO MÉDICO",
-    notes: "",
+    courseId: initialData?.course?.id || initialCourse?.id || "",
+    date: initialData?.date || today,
+    substituteTeacherId: initialData?.substituteTeacher?.id || "",
+    reason: initialData?.reason || "ATESTADO MÉDICO",
+    notes: initialData?.notes || "",
   });
   const [error, setError] = useState("");
   const [salvando, setSalvando] = useState(false);
@@ -500,7 +517,7 @@ function SubstitutionForm({ courses, teachers, initialCourse, onSave }) {
       </label>
       <div className="form-actions">
         <button className="primary" type="submit" disabled={salvando}>
-          {salvando ? "Salvando…" : "Registrar substituição"}
+          {salvando ? "Salvando…" : initialData ? "Salvar alterações" : "Registrar substituição"}
         </button>
       </div>
     </form>
