@@ -210,7 +210,19 @@ export default function HomePage() {
       <aside className="sidebar">
         <div className="brand"><div className="brand-mark"><img src={logoSenac} alt="Senac" /></div><div><strong>SIGEA</strong><span>Gestão de espaços</span></div></div>
         <nav>{visibleTabs.map(([id, icon, label]) => <button key={id} className={tab === id ? "active" : ""} onClick={() => { setTab(id); setSearch(""); }}><span>{icon}</span>{label}</button>)}</nav>
-        <div className="sidebar-bottom"><div className="user-avatar">{(user.name || "A").charAt(0)}</div><div><strong>{normalizeName(user.name || "Administrador")}</strong><span>{user.role || "Usuário"}</span></div><button onClick={() => navigate("/redefinir-senha")} title="Redefinir senha" aria-label="Redefinir senha">⚿</button><button onClick={logout} title="Sair" aria-label="Sair">↗</button></div>
+        <div className="sidebar-bottom">
+          <div className="user-card">
+            <div className="user-avatar" aria-hidden="true">{(user.name || "A").charAt(0)}</div>
+            <div className="user-info">
+              <strong>{normalizeName(user.name || "Administrador")}</strong>
+              <span>{user.role || "Usuário"}</span>
+            </div>
+          </div>
+          <div className="user-actions">
+            <button className="user-action-btn" onClick={() => navigate("/redefinir-senha")} title="Redefinir senha" aria-label="Redefinir senha"><span aria-hidden="true">⚿</span><em>Senha</em></button>
+            <button className="user-action-btn" onClick={logout} title="Sair" aria-label="Sair"><span aria-hidden="true">↗</span><em>Sair</em></button>
+          </div>
+        </div>
       </aside>
       <main className="workspace">
         <header className="topbar">
