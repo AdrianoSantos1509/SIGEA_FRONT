@@ -7,15 +7,29 @@ import "./HomePage.css";
 import "./ConfirmDialog.css";
 
 const tabs = [
-  ["dashboard", "▦", "Visão geral"],
-  ["buildings", "▣", "Unidades"],
-  ["rooms", "□", "Salas"],
-  ["teachers", "♙", "Instrutores"],
-  ["courses", "▤", "Turmas"],
-  ["allocations", "⇄", "Alocações"],
-  ["substitutions", "↺", "Substituições"],
-  ["users", "♙", "Usuários"],
+  ["dashboard", "dashboard", "Visão geral"],
+  ["buildings", "buildings", "Unidades"],
+  ["rooms", "rooms", "Salas"],
+  ["teachers", "teachers", "Instrutores"],
+  ["courses", "courses", "Turmas"],
+  ["allocations", "allocations", "Alocações"],
+  ["substitutions", "substitutions", "Substituições"],
+  ["users", "users", "Usuários"],
 ];
+const ICONS = {
+  dashboard: <><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></>,
+  buildings: <><path d="M4 21V5a1 1 0 0 1 1-1h8a1 1 0 0 1 1 1v16"/><path d="M14 10h5a1 1 0 0 1 1 1v10"/><path d="M2 21h20"/><path d="M8 8h2M8 12h2M8 16h2"/></>,
+  rooms: <><path d="M6 21V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v17"/><path d="M3 21h18"/><circle cx="14.5" cy="12" r=".8"/></>,
+  teachers: <><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></>,
+  courses: <><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/></>,
+  allocations: <><path d="M4 8h14l-3-3"/><path d="M20 16H6l3 3"/></>,
+  substitutions: <><path d="M20 11a8 8 0 0 0-14.5-3.5L4 9"/><path d="M4 4v5h5"/><path d="M4 13a8 8 0 0 0 14.5 3.5L20 15"/><path d="M20 20v-5h-5"/></>,
+  users: <><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16 4.6a3.5 3.5 0 0 1 0 6.8"/><path d="M18 14.3a6.5 6.5 0 0 1 3.5 5.7"/></>,
+  clock: <><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></>,
+  check: <><circle cx="12" cy="12" r="9"/><path d="m8 12.5 3 3 5-6"/></>,
+  chart: <path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>,
+};
+function Icon({ name }) { return <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{ICONS[name]}</svg>; }
 const week = ["SEG", "TER", "QUA", "QUI", "SEX", "SAB"];
 const today = new Date().toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" });
 const PAGE_SIZE_OPTIONS = [15, 30, 45];
@@ -209,7 +223,7 @@ export default function HomePage() {
     <div className="app-shell">
       <aside className="sidebar">
         <div className="brand"><div className="brand-mark"><img src={logoSenac} alt="Senac" /></div><div><strong>SIGEA</strong><span>Gestão de espaços</span></div></div>
-        <nav>{visibleTabs.map(([id, icon, label]) => <button key={id} className={tab === id ? "active" : ""} onClick={() => { setTab(id); setSearch(""); }}><span>{icon}</span>{label}</button>)}</nav>
+        <nav>{visibleTabs.map(([id, icon, label]) => <button key={id} className={tab === id ? "active" : ""} onClick={() => { setTab(id); setSearch(""); }}><span><Icon name={icon} /></span>{label}</button>)}</nav>
         <div className="sidebar-bottom">
           <div className="user-card">
             <div className="user-avatar" aria-hidden="true">{(user.name || "A").charAt(0)}</div>
@@ -260,15 +274,15 @@ function Dashboard({ dashboard, date, setTab, onNew, onEditRoom, onInstructors, 
   const [metricDetail, setMetricDetail] = useState(null);
   const schedulePagination = usePagination(dashboard?.schedule || [], date);
   const cards = [
-    { id: "rooms", label: "Salas cadastradas", value: metrics.rooms, color: "#e7f0fb" },
-    { id: "occupied", label: "Ocupadas no dia", value: metrics.occupied, color: "#fff0dd" },
-    { id: "available", label: "Disponíveis no dia", value: metrics.available, color: "#e6f6ee" },
-    { id: "rate", label: "Taxa de ocupação", value: `${metrics.occupancyRate || 0}%`, color: "#eee9fb" },
-    { id: "instructors", label: "Instrutores disponíveis", value: metrics.instructorsAvailable ?? 0, color: "#e8f4f7" },
+    { id: "rooms", label: "Salas cadastradas", value: metrics.rooms, color: "#e7f0fb", ink: "#1a63a6", icon: "rooms" },
+    { id: "occupied", label: "Ocupadas no dia", value: metrics.occupied, color: "#fff0dd", ink: "#c26a00", icon: "clock" },
+    { id: "available", label: "Disponíveis no dia", value: metrics.available, color: "#e6f6ee", ink: "#1e7a34", icon: "check" },
+    { id: "rate", label: "Taxa de ocupação", value: `${metrics.occupancyRate || 0}%`, color: "#eee9fb", ink: "#5b43b5", icon: "chart" },
+    { id: "instructors", label: "Instrutores disponíveis", value: metrics.instructorsAvailable ?? 0, color: "#e8f4f7", ink: "#0f7490", icon: "teachers" },
   ];
   return <div className="content">
     <section className="welcome"><div><span className="eyebrow">Planejamento de {formatDate(date)}</span><h2>Mapa diário de ocupação</h2><p>Acompanhe rapidamente a disponibilidade e resolva pendências de alocação.</p></div>{isAdmin && <button className="primary" onClick={onNew}>+ Nova alocação</button>}</section>
-    <section className="metric-grid">{cards.map((card) => <button type="button" className="metric-card" key={card.id} onClick={() => card.id === "instructors" ? onInstructors() : setMetricDetail(card.id)} aria-label={`${card.label}: ${card.value}. Abrir detalhes`}><div className="metric-icon" style={{ background: card.color }}>⌂</div><div><span>{card.label}</span><strong>{card.value ?? 0}</strong><small>Ver detalhes →</small></div></button>)}</section>
+    <section className="metric-grid">{cards.map((card) => <button type="button" className="metric-card" key={card.id} onClick={() => card.id === "instructors" ? onInstructors() : setMetricDetail(card.id)} aria-label={`${card.label}: ${card.value}. Abrir detalhes`}><div className="metric-icon" style={{ background: card.color, color: card.ink }}><Icon name={card.icon} /></div><div><span>{card.label}</span><strong>{card.value ?? 0}</strong><small>Ver detalhes →</small></div></button>)}</section>
     <section className="dashboard-grid"><article className="panel schedule-panel"><header><div><span className="eyebrow">Agenda</span><h3>Ocupações do dia</h3></div><button className="link-button" onClick={() => setTab("allocations")}>Ver todas →</button></header>{dashboard?.schedule?.length ? <><div className="schedule-list">{schedulePagination.visible.map((item) => <div className="schedule-item" key={item.id}><time>{formatTime(item.startTime)}<small>{formatTime(item.endTime)}</small></time><i /><div><strong>{normalizeName(item.title)}</strong><span>{item.classroom?.name} · {item.classroom?.building?.name}</span></div><Status>{item.kind}</Status></div>)}</div><div className="pagination-row"><PageSizeSelector pageSize={schedulePagination.pageSize} setPageSize={schedulePagination.setPageSize}/><Pagination page={schedulePagination.page} total={dashboard.schedule.length} pageSize={schedulePagination.pageSize} onChange={schedulePagination.setPage}/></div></> : <Empty>Nenhuma ocupação para a data selecionada.</Empty>}</article><aside className="panel quick-panel"><header><div><span className="eyebrow">Atenção</span><h3>Pendências</h3></div></header><div className="pending-number">{metrics.unallocated || 0}</div><p>turmas ativas ainda não possuem uma alocação registrada.</p><button className="secondary" onClick={() => setTab("courses")}>Revisar turmas</button><div className="mini-stat"><span>Turmas ativas</span><strong>{metrics.activeTurmas || 0}</strong></div></aside></section>
     {metricDetail && metricDetail !== "rate" && <RoomMetricModal key={metricDetail} type={metricDetail} date={date} rooms={dashboard?.roomDetails || []} isAdmin={isAdmin} onClose={() => setMetricDetail(null)} onEdit={(room) => { setMetricDetail(null); onEditRoom(room); }} />}
     {metricDetail === "rate" && <OccupancyOverviewModal date={date} items={dashboard?.occupancyByUnidade || []} onClose={() => setMetricDetail(null)} />}
