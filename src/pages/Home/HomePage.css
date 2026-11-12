@@ -176,7 +176,7 @@ button { border: 0; }
 }
 
 /* ===== Refinamento visual: layout mais largo e profissional ===== */
-:root { --sidebar-w: 248px; }
+:root { --sidebar-w: 300px; }
 .sidebar { width: var(--sidebar-w); padding: 24px 16px 18px; background: linear-gradient(180deg, #073d72 0%, #052e55 100%); }
 .brand { gap: 12px; padding: 0 8px 22px; margin-bottom: 18px; border-bottom: 1px solid #ffffff17; }
 .brand-mark { width: 48px; height: 38px; flex: 0 0 48px; }

@@ -12,6 +12,13 @@ const validTimeRange = (start, end) => Boolean(start && end && start < end);
 const formatTime = (value) => String(value || "").slice(0, 5);
 const displayName = (value) => String(value || "").trim().toLocaleUpperCase("pt-BR");
 
+// Segmento comparável: sem acento, minúsculo e sem espaços repetidos.
+const normalizeSegment = (value) => String(value ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim().toLowerCase();
+// Instrutor da lista de disponibilidade traz "segment"; o cadastro (turma.teacher) traz "area".
+const teacherMatchesSegment = (teacher, segmentKey) => !segmentKey || normalizeSegment(teacher?.segment ?? teacher?.area) === segmentKey;
+const NO_SEGMENT_TEACHERS = "Não existem instrutores cadastrados para o segmento desta turma. Cadastre um instrutor com o segmento correspondente para realizar a alocação.";
+const NO_AVAILABLE_SEGMENT_TEACHERS = "Não existem instrutores disponíveis para este segmento no período e horário selecionados.";
+
 function shiftFromTimes(startTime, endTime) {
   const start = formatTime(startTime);
   const end = formatTime(endTime);
@@ -38,10 +45,15 @@ export default function CorrectedAllocationForm({ courses, rooms, initialCourse,
   });
   const [roomResult, setRoomResult] = useState({ rooms: [], totalActiveRooms: 0 });
   const [availableInstructors, setAvailableInstructors] = useState([]);
+  const [instructorMeta, setInstructorMeta] = useState(null);
   const [checking, setChecking] = useState(false);
   const [error, setError] = useState("");
 
   const selectedCourse = courses.find((course) => course.id === Number(data.courseId));
+  // Segmento da turma escolhida (ou da turma da alocação que está sendo editada).
+  const segmentCourse = selectedCourse || [initialData?.course, initialCourse].find((course) => course && course.id === Number(data.courseId));
+  const courseSegment = segmentCourse?.segment ? String(segmentCourse.segment) : "";
+  const segmentKey = normalizeSegment(courseSegment);
   const roomBuildingId = selectedCourse?.building?.id || initialData?.course?.building?.id || buildingId;
   const availableCourses = useMemo(() => {
     return courses.filter((course) => {
@@ -60,6 +72,7 @@ export default function CorrectedAllocationForm({ courses, rooms, initialCourse,
       if (!validDateRange(data.startDate, data.endDate) || !validTimeRange(data.startTime, data.endTime) || !data.weekdays.length) {
         setRoomResult({ rooms: [], totalActiveRooms: 0 });
         setAvailableInstructors([]);
+        setInstructorMeta(null);
         return;
       }
       setChecking(true);
@@ -83,7 +96,12 @@ export default function CorrectedAllocationForm({ courses, rooms, initialCourse,
           weekdays: data.weekdays.join(","),
         });
         if (initialData?.id) instructorQuery.set("excludeOccupancyId", initialData.id);
-        const [roomPayload, instructors] = await Promise.all([
+        // Com turma que tem segmento: o backend devolve só instrutores ativos, do segmento e disponíveis.
+        if (data.courseId && segmentKey) {
+          instructorQuery.set("courseId", data.courseId);
+          instructorQuery.set("includeMeta", "1");
+        }
+        const [roomPayload, instructorPayload] = await Promise.all([
           api(`/api/classrooms/availability?${roomQuery}`),
           api(`/api/teachers/availability?${instructorQuery}`),
         ]);
@@ -93,11 +111,16 @@ export default function CorrectedAllocationForm({ courses, rooms, initialCourse,
           rooms: queriedRooms.filter((room) => room.available),
           totalActiveRooms: roomPayload.meta?.totalActiveRooms ?? queriedRooms.length,
         });
+        const instructors = Array.isArray(instructorPayload) ? instructorPayload : instructorPayload.items || [];
         setAvailableInstructors(instructors);
+        setInstructorMeta(segmentKey && !Array.isArray(instructorPayload) ? instructorPayload.meta || null : null);
+        // Instrutor já selecionado que não pertence ao segmento / não está disponível não pode ficar vinculado.
+        if (segmentKey) setData((current) => (current.instructorId && !instructors.some((instructor) => instructor.id === Number(current.instructorId)) ? { ...current, instructorId: "" } : current));
       } catch (requestError) {
         if (!cancelled) {
           setRoomResult({ rooms: [], totalActiveRooms: 0 });
           setAvailableInstructors([]);
+          setInstructorMeta(null);
           setError(requestError.message || "Não foi possível consultar a disponibilidade agora.");
         }
       } finally {
@@ -106,16 +129,19 @@ export default function CorrectedAllocationForm({ courses, rooms, initialCourse,
     }
     loadAvailability();
     return () => { cancelled = true; };
-  }, [data.startDate, data.endDate, data.startTime, data.endTime, data.weekdays, data.courseId, roomBuildingId, initialData?.id]);
+  }, [data.startDate, data.endDate, data.startTime, data.endTime, data.weekdays, data.courseId, courseSegment, roomBuildingId, initialData?.id]);
 
   function selectCourse(event) {
     const course = courses.find((item) => item.id === Number(event.target.value));
     const shift = course?.shift || shiftFromTimes(course?.startTime, course?.endTime);
     const times = SHIFT_TIMES[shift] || {};
+    // Troca de turma: descarta a lista do segmento anterior e só mantém o titular se ele for do segmento da nova turma.
+    setAvailableInstructors([]);
+    setInstructorMeta(null);
     setData((current) => ({
       ...current,
       courseId: event.target.value,
-      instructorId: course?.teacher?.id || "",
+      instructorId: course?.teacher?.id && teacherMatchesSegment(course.teacher, normalizeSegment(course.segment)) ? course.teacher.id : "",
       classroomId: "",
       title: course ? `${course.code} · ${course.name}` : current.title,
       startDate: course?.startDate || current.startDate,
@@ -131,7 +157,7 @@ export default function CorrectedAllocationForm({ courses, rooms, initialCourse,
   function selectShift(event) {
     const shift = event.target.value;
     const times = SHIFT_TIMES[shift];
-    setData((current) => ({ ...current, shift, startTime: times.startTime, endTime: times.endTime, classroomId: "", instructorId: selectedCourse?.teacher?.id || current.instructorId }));
+    setData((current) => ({ ...current, shift, startTime: times.startTime, endTime: times.endTime, classroomId: "", instructorId: selectedCourse?.teacher?.id && teacherMatchesSegment(selectedCourse.teacher, segmentKey) ? selectedCourse.teacher.id : current.instructorId }));
   }
 
   function submit(event) {
@@ -161,11 +187,18 @@ export default function CorrectedAllocationForm({ courses, rooms, initialCourse,
   // Também força a entrada do instrutor já vinculado à turma (selectedCourse.teacher),
   // mesmo que a consulta de disponibilidade ainda não o tenha confirmado — assim ele
   // já aparece pré-selecionado ao escolher a turma, sem precisar buscar de novo.
-  const instructorOptions = selectedInstructorIsAvailable || initialData?.instructor || selectedCourse?.teacher
-    ? [initialData?.instructor, selectedCourse?.teacher, ...availableInstructors]
-        .filter(Boolean)
-        .filter((item, index, array) => array.findIndex((candidate) => candidate.id === item.id) === index)
-    : availableInstructors;
+  // Com filtro de segmento ativo, a lista vem pronta do backend (ativos + segmento + disponíveis) e não
+  // se injeta ninguém por fora. Sem turma/segmento, vale o comportamento anterior.
+  const instructorOptions = segmentKey
+    ? availableInstructors
+    : selectedInstructorIsAvailable || initialData?.instructor || selectedCourse?.teacher
+      ? [initialData?.instructor, selectedCourse?.teacher, ...availableInstructors]
+          .filter(Boolean)
+          .filter((item, index, array) => array.findIndex((candidate) => candidate.id === item.id) === index)
+      : availableInstructors;
+  const noSegmentInstructorsMessage = segmentKey && instructorMeta && !checking && !availableInstructors.length && !error
+    ? (instructorMeta.totalInSegment === 0 ? NO_SEGMENT_TEACHERS : NO_AVAILABLE_SEGMENT_TEACHERS)
+    : "";
   const selectedRoomIsAvailable = data.classroomId && roomResult.rooms.some((room) => room.id === Number(data.classroomId));
   // FIX: mesma correção aplicada às salas.
   const roomOptions = selectedRoomIsAvailable || initialData?.classroom
@@ -184,7 +217,7 @@ export default function CorrectedAllocationForm({ courses, rooms, initialCourse,
     </label>
     <label>Instrutor
       <select value={data.instructorId} onChange={(event) => setData((current) => ({ ...current, instructorId: event.target.value }))} disabled={checking}>
-        <option value="">{checking ? "CONSULTANDO INSTRUTORES..." : instructorOptions.length ? "SELECIONE O INSTRUTOR DISPONÍVEL" : "NENHUM INSTRUTOR ATIVO DISPONÍVEL NESTE HORÁRIO"}</option>
+        <option value="">{checking ? "CONSULTANDO INSTRUTORES..." : instructorOptions.length ? "SELECIONE O INSTRUTOR DISPONÍVEL" : segmentKey ? "NENHUM INSTRUTOR DISPONÍVEL PARA O SEGMENTO" : "NENHUM INSTRUTOR ATIVO DISPONÍVEL NESTE HORÁRIO"}</option>
         {instructorOptions.map((instructor) => <option value={instructor.id} key={instructor.id}>{displayName(instructor.name)}{instructor.segment ? ` · ${displayName(instructor.segment)}` : ""}</option>)}
       </select>
     </label>
@@ -195,7 +228,8 @@ export default function CorrectedAllocationForm({ courses, rooms, initialCourse,
       </select>
     </label>
     {!checking && !roomResult.rooms.length && !initialData?.classroom && <p className="form-hint availability-empty">{noRoomsMessage}</p>}
-    {!checking && !availableInstructors.length && !initialData?.instructor && !error && <p className="form-hint availability-empty">Não há instrutores ativos disponíveis para o período, horário e dias selecionados.</p>}
+    {noSegmentInstructorsMessage && <p className="form-hint availability-empty">{noSegmentInstructorsMessage}</p>}
+    {!segmentKey && !checking && !availableInstructors.length && !initialData?.instructor && !error && <p className="form-hint availability-empty">Não há instrutores ativos disponíveis para o período, horário e dias selecionados.</p>}
     <div className="form-grid">
       <label>Início<input required type="date" value={data.startDate} disabled={lockedByCourse} onChange={(event) => setData((current) => ({ ...current, startDate: event.target.value }))} /></label>
       <label>Término<input required type="date" value={data.endDate} disabled={lockedByCourse} onChange={(event) => setData((current) => ({ ...current, endDate: event.target.value }))} /></label>
